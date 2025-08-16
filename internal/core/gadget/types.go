@@ -63,7 +63,7 @@ type GadgetManager interface {
 	List(ctx Context, opts ListOptions) ([]*Gadget, error)
 	Enable(ctx Context, name string) error
 	Disable(ctx Context, name string) error
-	Delete(ctx Context, name string) error
+	Delete(ctx Context, name string, keepImage bool) error
 	Restore(ctx Context) error
 }
 

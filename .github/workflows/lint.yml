@@ -1,4 +1,4 @@
-name: Lint
+name: Lint and Format
 
 on:
   push:
@@ -18,43 +18,45 @@ jobs:
       with:
         go-version: '1.22'
 
-    - name: Install golangci-lint
-      uses: golangci/golangci-lint-action@v3
-      with:
-        version: latest
-
-    - name: Run golangci-lint
-      run: golangci-lint run
-
-  format:
-    runs-on: ubuntu-latest
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Set up Go
-      uses: actions/setup-go@v4
-      with:
-        go-version: '1.22'
-
     - name: Check formatting
       run: |
         if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then
-          echo "Code is not formatted. Please run 'go fmt ./...'"
+          echo "❌ Code is not formatted. Please run 'go fmt ./...'"
           gofmt -s -l .
           exit 1
         fi
-
-  vet:
-    runs-on: ubuntu-latest
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Set up Go
-      uses: actions/setup-go@v4
-      with:
-        go-version: '1.22'
+        echo "✅ Code formatting is correct"
 
     - name: Run go vet
-      run: go vet ./...
+      run: |
+        if ! go vet ./...; then
+          echo "❌ go vet found issues"
+          exit 1
+        fi
+        echo "✅ go vet passed"
+
+    - name: Run go mod tidy check
+      run: |
+        go mod tidy
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "❌ go.mod or go.sum needs to be updated. Run 'go mod tidy'"
+          git diff
+          exit 1
+        fi
+        echo "✅ go.mod is tidy"
+
+    - name: Run go build
+      run: |
+        if ! go build ./...; then
+          echo "❌ Build failed"
+          exit 1
+        fi
+        echo "✅ Build successful"
+
+    - name: Run tests
+      run: |
+        if ! go test ./...; then
+          echo "❌ Tests failed"
+          exit 1
+        fi
+        echo "✅ Tests passed"

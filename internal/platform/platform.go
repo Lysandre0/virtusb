@@ -2,6 +2,7 @@ package platform
 
 import (
 	"context"
+	"runtime"
 )
 
 // Platform defines the interface for system operations
@@ -57,7 +58,18 @@ func NewPlatform(config Config) (Platform, error) {
 	if config.MockMode {
 		return NewMockPlatform(config)
 	}
+
+	// Check if we're on a supported platform
+	if !isLinux() {
+		return NewMockPlatform(config)
+	}
+
 	return NewLinuxPlatform(config)
+}
+
+// isLinux checks if we're running on Linux
+func isLinux() bool {
+	return runtime.GOOS == "linux"
 }
 
 // CommonPlatform provides common implementations
@@ -70,21 +82,21 @@ func (p *CommonPlatform) IsMockMode() bool {
 }
 
 func (p *CommonPlatform) GetStateDir() string {
-	if p.config.MockMode {
+	if p.config.MockMode || !isLinux() {
 		return "/tmp/virtusb_test/etc/virtusb"
 	}
 	return p.config.StateDir
 }
 
 func (p *CommonPlatform) GetImageDir() string {
-	if p.config.MockMode {
+	if p.config.MockMode || !isLinux() {
 		return "/tmp/virtusb_test/var/lib/virtusb"
 	}
 	return p.config.ImageDir
 }
 
 func (p *CommonPlatform) GetGadgetRoot() string {
-	if p.config.MockMode {
+	if p.config.MockMode || !isLinux() {
 		return "/tmp/virtusb_test/sys/kernel/config/usb_gadget"
 	}
 	return p.config.GadgetRoot

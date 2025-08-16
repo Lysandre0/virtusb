@@ -250,22 +250,34 @@ func (cli *CLI) handleDisable(args []string) error {
 }
 
 func (cli *CLI) handleDelete(args []string) error {
-	if len(args) != 1 {
-		return fmt.Errorf("usage: virtusb delete <name>")
+	if len(args) < 1 || len(args) > 2 {
+		return fmt.Errorf("usage: virtusb delete <name> [--keep-image]")
 	}
 
 	name := args[0]
+	keepImage := false
+
+	if len(args) == 2 && args[1] == "--keep-image" {
+		keepImage = true
+	} else if len(args) == 2 {
+		return fmt.Errorf("unknown option: %s. Use --keep-image to preserve the image file", args[1])
+	}
+
 	if err := cli.validateGadgetName(name); err != nil {
 		return fmt.Errorf("invalid gadget name: %w", err)
 	}
 
 	ctx := cli.createContext()
 
-	if err := cli.gadgetManager.Delete(ctx, name); err != nil {
+	if err := cli.gadgetManager.Delete(ctx, name, keepImage); err != nil {
 		return fmt.Errorf("gadget deletion failed: %w", err)
 	}
 
-	fmt.Printf("✅ Gadget '%s' deleted successfully (image preserved)\n", name)
+	if keepImage {
+		fmt.Printf("✅ Gadget '%s' deleted successfully (image preserved)\n", name)
+	} else {
+		fmt.Printf("✅ Gadget '%s' deleted successfully (image removed)\n", name)
+	}
 	return nil
 }
 

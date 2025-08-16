@@ -8,10 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Nothing yet
+- 🚀 **Cross-platform development support** - Automatic mock mode for non-Linux platforms
+- 🚀 **Linux build targets** - Added `make build-linux` for cross-compilation to Linux
+- 🚀 **Enhanced error reporting** - Better error messages for debugging gadget issues
+- 🚀 **Flexible image deletion** - Added `--keep-image` option to `delete` command for preserving storage images
 
 ### Changed
-- Nothing yet
+- 🔄 **Platform detection** - Improved automatic detection of Linux vs non-Linux platforms
+- 🔄 **Path handling** - Unified path handling for mock mode across all platforms
+- 🔄 **Delete behavior** - Changed default behavior to remove image files when deleting gadgets
 
 ### Deprecated
 - Nothing yet
@@ -22,6 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - 🔧 **Fixed deadlock in mutex handling** - Resolved `fatal error: all goroutines are asleep - deadlock!` by simplifying double-checked locking in `IsModuleLoaded` and `IsMountpoint` methods
 - 🔧 **Fixed RWMutex unlock error** - Resolved `fatal error: sync: RUnlock of unlocked RWMutex` by correcting mutex management logic
+- 🔧 **Fixed platform detection** - Corrected automatic mock mode detection for non-Linux platforms (macOS, Windows)
+- 🔧 **Fixed gadget listing inconsistency** - Resolved issue where gadgets existed but didn't appear in list due to path mismatch
+- 🔧 **Fixed metadata validation** - Added verification that gadget structure exists when loading metadata
 
 ### Security
 - 🔒 **Enhanced input validation** - Added comprehensive validation for gadget names, sizes, and file paths

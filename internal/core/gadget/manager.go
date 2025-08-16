@@ -113,6 +113,12 @@ func (m *Manager) Get(ctx Context, name string) (*Gadget, error) {
 		return nil, fmt.Errorf("metadata parse failed: %w", err)
 	}
 
+	// Verify that the gadget structure still exists
+	gadgetPath := m.getGadgetPath(ctx, name)
+	if !ctx.Platform.FileExists(gadgetPath) {
+		return nil, ErrGadgetNotFound{Name: name}
+	}
+
 	gadget.Enabled = m.isGadgetEnabled(ctx, name)
 	m.cacheGadgetOptimized(name, gadget)
 
@@ -127,6 +133,8 @@ func (m *Manager) List(ctx Context, opts ListOptions) ([]*Gadget, error) {
 	}
 
 	var gadgets []*Gadget
+	var errors []string
+
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".env") {
 			continue
@@ -135,6 +143,8 @@ func (m *Manager) List(ctx Context, opts ListOptions) ([]*Gadget, error) {
 		name := strings.TrimSuffix(entry.Name(), ".env")
 		gadget, err := m.Get(ctx, name)
 		if err != nil {
+			// Log the error but continue processing other gadgets
+			errors = append(errors, fmt.Sprintf("gadget %s: %v", name, err))
 			continue
 		}
 
@@ -143,6 +153,11 @@ func (m *Manager) List(ctx Context, opts ListOptions) ([]*Gadget, error) {
 		}
 
 		gadgets = append(gadgets, gadget)
+	}
+
+	// If there were errors, log them for debugging
+	if len(errors) > 0 {
+		fmt.Fprintf(os.Stderr, "Warning: Some gadgets could not be loaded: %s\n", strings.Join(errors, "; "))
 	}
 
 	return gadgets, nil
@@ -207,11 +222,17 @@ func (m *Manager) Disable(ctx Context, name string) error {
 	return nil
 }
 
-func (m *Manager) Delete(ctx Context, name string) error {
+func (m *Manager) Delete(ctx Context, name string, keepImage bool) error {
 	if m.isGadgetEnabled(ctx, name) {
 		if err := m.Disable(ctx, name); err != nil {
 			return fmt.Errorf("disable before delete failed: %w", err)
 		}
+	}
+
+	// Get gadget info before deletion to access image path
+	gadget, err := m.Get(ctx, name)
+	if err != nil {
+		return fmt.Errorf("failed to get gadget info: %w", err)
 	}
 
 	gadgetPath := m.getGadgetPath(ctx, name)
@@ -222,6 +243,13 @@ func (m *Manager) Delete(ctx Context, name string) error {
 	metadataPath := m.getMetadataPath(ctx, name)
 	if err := os.Remove(metadataPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("metadata removal failed: %w", err)
+	}
+
+	// Delete the image file unless keepImage is true
+	if !keepImage && gadget.ImagePath != "" {
+		if err := os.Remove(gadget.ImagePath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("image file removal failed: %w", err)
+		}
 	}
 
 	m.removeFromCache(name)
