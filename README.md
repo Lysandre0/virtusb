@@ -1,91 +1,327 @@
-# virtusb
+# virtusb 🚀
 
-Virtual USB gadget manager for Linux using the Linux USB Gadget framework and USB/IP.
+**Virtual USB Gadget Manager for Linux** - Create and manage virtual USB storage devices using the Linux USB Gadget framework.
 
-## Features
+[![Go Version](https://img.shields.io/badge/Go-1.22+-blue.svg)](https://golang.org)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Build Status](https://github.com/your-username/virtusb/workflows/Test/badge.svg)](https://github.com/your-username/virtusb/actions)
+[![Release](https://img.shields.io/github/v/release/your-username/virtusb)](https://github.com/your-username/virtusb/releases)
 
-- Create virtual USB keys with different brands (SanDisk, Kingston, etc.)
-- Support for different filesystems (FAT32, exFAT)
-- Export via USB/IP for remote access
-- Configuration persistence
-- Mock mode for testing
+## 🎯 What is virtusb?
 
-## Prerequisites
+virtusb is a powerful command-line tool that allows you to create and manage virtual USB storage devices on Linux systems. It leverages the Linux USB Gadget framework to create realistic USB storage devices that appear as genuine hardware to the system.
 
-- Linux with kernel 4.0+
-- Root privileges (sudo)
+### ✨ Key Features
+
+- 🔧 **Easy USB Device Creation** - Create virtual USB storage devices with custom sizes and brands
+- 🎭 **Multiple Brand Support** - SanDisk, Kingston, Corsair, Samsung, and Generic devices
+- 💾 **Flexible Storage Options** - FAT32, exFAT, or raw storage
+- 🔄 **Automatic Restoration** - Restore devices after system reboot
+- 🧪 **Mock Mode** - Test without system modifications
+- ⚡ **High Performance** - Optimized with intelligent caching
+- 🔍 **System Diagnostics** - Comprehensive system health checks
+
+## 🚀 Quick Start
+
+### Prerequisites
+
+- Linux kernel with USB Gadget support
+- Root privileges (required for USB operations)
 - Kernel modules: `libcomposite`, `dummy_hcd`, `usbip_core`, `usbip_host`
-- Tools: `usbip`, `dosfstools`, `exfat-utils`
 
-## Installation
-
-### Quick Install (Recommended)
+### Installation
 
 ```bash
-# Automatic installation
-curl -sSL https://github.com/[your-username]/virtusb/releases/latest/download/install.sh | bash
+# Clone the repository
+git clone https://github.com/your-username/virtusb.git
+cd virtusb
+
+# Build the project
+make build
+
+# Install (requires sudo)
+sudo make install
 ```
 
-### Manual Installation
+### Basic Usage
 
 ```bash
-# Build from source
-go build -o virtusb cmd/virtusb/main.go
+# Create a virtual USB device
+sudo virtusb create my-device --size 8G --brand sandisk
 
-# Install
-sudo cp virtusb /usr/local/bin/
-```
-
-### Direct Download
-
-Download the appropriate binary from [GitHub releases](https://github.com/[your-username]/virtusb/releases):
-
-- **Linux AMD64**: `virtusb_linux_amd64`
-- **Linux ARM64**: `virtusb_linux_arm64`
-- **macOS AMD64**: `virtusb_darwin_amd64`
-- **macOS ARM64**: `virtusb_darwin_arm64`
-
-Then:
-```bash
-chmod +x virtusb_*
-sudo mv virtusb_* /usr/local/bin/virtusb
-```
-
-## Usage
-
-```bash
-# Create a virtual USB key
-sudo virtusb create my_key --size 8G --brand sandisk
-
-# List gadgets
+# List all devices
 sudo virtusb list
 
-# Enable a gadget
-sudo virtusb enable my_key
+# Enable a device
+sudo virtusb enable my-device
 
-# Export via USB/IP
-sudo virtusb export my_key
-
-# Diagnostic
+# Check system status
 sudo virtusb diagnose
 ```
 
-## Environment Variables
+## 📖 Usage Guide
 
-- `MOCK=1` : Mock mode (no system changes)
-- `VIRTUSB_ROOT` : Gadget root directory
-- `USBIP_BIN` / `USBIPD_BIN` : Paths to usbip binaries
+### Creating Virtual USB Devices
 
-## Architecture
+```bash
+# Basic device creation
+virtusb create my-gadget --size 8G --brand sandisk
 
-The project follows a modular architecture with separation of concerns:
+# Custom filesystem
+virtusb create exfat-device --size 16G --brand kingston --fs exfat
 
-- `internal/config/` : Centralized configuration
-- `internal/core/` : Business logic (gadget, storage, usbip)
-- `internal/platform/` : Platform abstraction
-- `internal/cli/` : Command line interface
-- `internal/utils/` : Generic utilities
+# Custom serial number
+virtusb create custom-device --size 4G --brand corsair --serial MY_SERIAL_123
 
-## License
+# Raw storage (no filesystem)
+virtusb create raw-device --size 2G --fs none
+```
 
-[Insert your license here]
+### Managing Devices
+
+```bash
+# List all devices
+virtusb list
+
+# Enable a device (makes it visible to the system)
+virtusb enable my-gadget
+
+# Disable a device
+virtusb disable my-gadget
+
+# Delete a device (preserves the image file)
+virtusb delete my-gadget
+
+# Restore all devices after reboot
+virtusb restore
+```
+
+### System Diagnostics
+
+```bash
+# Comprehensive system check
+virtusb diagnose
+```
+
+This command checks:
+- Root privileges
+- Kernel modules status
+- configfs mounting
+- UDC availability
+- USB/IP binaries
+- Directory permissions
+
+### Environment Variables
+
+```bash
+# Mock mode (for testing)
+export MOCK=1
+
+# Custom paths
+export VIRTUSB_ROOT=/sys/kernel/config/usb_gadget
+export VIRTUSB_STATE_DIR=/etc/virtusb
+export VIRTUSB_IMAGE_DIR=/var/lib/virtusb
+
+# Custom binaries
+export USBIP_BIN=/usr/bin/usbip
+export USBIPD_BIN=/usr/bin/usbipd
+
+# Default values
+export VIRTUSB_DEFAULT_SIZE=8G
+export VIRTUSB_DEFAULT_BRAND=sandisk
+export VIRTUSB_DEFAULT_FS=fat32
+```
+
+## 🏗️ Architecture
+
+```
+virtusb/
+├── cmd/virtusb/          # Main application entry point
+├── internal/
+│   ├── cli/             # Command-line interface
+│   ├── config/          # Configuration management
+│   ├── core/
+│   │   ├── gadget/      # USB gadget management
+│   │   └── storage/     # Storage image management
+│   ├── platform/        # Platform abstraction layer
+│   └── utils/           # Utility functions
+└── .github/workflows/   # CI/CD pipelines
+```
+
+### Supported Brands
+
+| Brand | VID | PID | Description |
+|-------|-----|-----|-------------|
+| SanDisk | 0781 | 5567 | SanDisk USB devices |
+| Kingston | 0951 | 1666 | Kingston USB devices |
+| Corsair | 1b1c | 1a0a | Corsair USB devices |
+| Samsung | 04e8 | 61b6 | Samsung USB devices |
+| Generic | 13fe | 4200 | Generic USB devices |
+
+### Supported Filesystems
+
+- **FAT32** - Universal compatibility
+- **exFAT** - Large file support
+- **none** - Raw storage (no formatting)
+
+### Supported Sizes
+
+- **64M, 128M, 256M, 512M**
+- **1G, 2G, 4G, 8G, 16G, 32G, 64G**
+
+## 🧪 Testing
+
+### Unit Tests
+
+```bash
+# Run all tests
+make test
+
+# Run tests with coverage
+go test -v -coverprofile=coverage.out ./...
+```
+
+### Mock Mode Testing
+
+```bash
+# Test without system modifications
+MOCK=1 virtusb create test-device --size 64M
+MOCK=1 virtusb list
+MOCK=1 virtusb diagnose
+```
+
+## 🔧 Development
+
+### Building
+
+```bash
+# Standard build
+make build
+
+# Clean build artifacts
+make clean
+
+# Format code
+make fmt
+
+# Lint code
+make vet
+```
+
+### Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## 🐛 Troubleshooting
+
+### Common Issues
+
+#### "must be run as root"
+```bash
+# Solution: Run with sudo
+sudo virtusb create my-device
+```
+
+#### "no UDC available"
+```bash
+# Check kernel modules
+lsmod | grep -E "(libcomposite|dummy_hcd)"
+
+# Load modules manually
+sudo modprobe libcomposite
+sudo modprobe dummy_hcd
+```
+
+#### "configfs is not mounted"
+```bash
+# Mount configfs
+sudo mount -t configfs none /sys/kernel/config
+
+# Verify mounting
+mount | grep configfs
+```
+
+#### "usbip binary not found"
+```bash
+# Install usbip (Ubuntu/Debian)
+sudo apt install usbip
+
+# Install usbip (Fedora/RHEL)
+sudo dnf install usbip
+
+# Install usbip (Arch)
+sudo pacman -S usbip
+```
+
+### Diagnostic Commands
+
+```bash
+# Full system diagnostic
+virtusb diagnose
+
+# Check kernel modules
+lsmod | grep -E "(libcomposite|dummy_hcd|usbip)"
+
+# Check configfs
+mount | grep configfs
+
+# Check UDC availability
+ls /sys/class/udc/
+```
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🤝 Contributing
+
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+
+### Development Setup
+
+```bash
+# Clone and setup
+git clone https://github.com/your-username/virtusb.git
+cd virtusb
+
+# Install dependencies
+go mod download
+
+# Run tests
+make test
+
+# Build
+make build
+```
+
+## 📊 Performance
+
+virtusb is optimized for performance with:
+- **Intelligent caching** for gadget metadata
+- **Optimized file operations** with fallocate/truncate
+- **Concurrent operations** with proper locking
+- **Memory-efficient** data structures
+
+## 🔗 Related Projects
+
+- [Linux USB Gadget Framework](https://www.kernel.org/doc/html/latest/driver-api/usb/gadget.html)
+- [USB/IP Project](http://usbip.sourceforge.net/)
+- [ConfigFS Documentation](https://www.kernel.org/doc/html/latest/filesystems/configfs.html)
+
+## 📞 Support
+
+- **Issues**: [GitHub Issues](https://github.com/your-username/virtusb/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/your-username/virtusb/discussions)
+- **Documentation**: [Wiki](https://github.com/your-username/virtusb/wiki)
+
+---
+
+**Made with ❤️ for the Linux community**
+
+[![GitHub stars](https://img.shields.io/github/stars/your-username/virtusb?style=social)](https://github.com/your-username/virtusb/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/your-username/virtusb?style=social)](https://github.com/your-username/virtusb/network)
+[![GitHub issues](https://img.shields.io/github/issues/your-username/virtusb)](https://github.com/your-username/virtusb/issues)

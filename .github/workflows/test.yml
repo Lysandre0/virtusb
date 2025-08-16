@@ -1,25 +1,40 @@
-name: Tests
+name: Test
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, develop ]
   pull_request:
     branches: [ main ]
 
 jobs:
   test:
     runs-on: ubuntu-latest
-    
+    strategy:
+      matrix:
+        go-version: [1.21, 1.22]
+
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Go
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go ${{ matrix.go-version }}
       uses: actions/setup-go@v4
       with:
-        go-version: '1.22'
-    
-    - name: Test
-      run: make test
-    
-    - name: Test Mock
-      run: make test-mock
+        go-version: ${{ matrix.go-version }}
+
+    - name: Install dependencies
+      run: go mod download
+
+    - name: Run tests
+      run: go test -v ./...
+
+    - name: Run tests with coverage
+      run: go test -v -coverprofile=coverage.out ./...
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.out
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false

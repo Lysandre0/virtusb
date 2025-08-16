@@ -4,39 +4,53 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"strings"
+	"sync"
 )
 
-// VidPid returns VID/PID identifiers for a given brand
-func VidPid(brand string) (string, string) {
-	switch strings.ToLower(brand) {
-	case "sandisk":
-		return "0781", "5567"
-	case "kingston":
-		return "0951", "1666"
-	case "corsair":
-		return "1b1c", "1a0a"
-	case "samsung":
-		return "04e8", "61b6"
-	default:
-		return "13fe", "4200" // generic Phison
+var (
+	vidPidCache = map[string][2]string{
+		"sandisk":  {"0781", "5567"},
+		"kingston": {"0951", "1666"},
+		"corsair":  {"1b1c", "1a0a"},
+		"samsung":  {"04e8", "61b6"},
+		"generic":  {"13fe", "4200"},
 	}
+	cacheMutex sync.RWMutex
+)
+
+func VidPid(brand string) (string, string) {
+	brandLower := strings.ToLower(brand)
+
+	cacheMutex.RLock()
+	if result, exists := vidPidCache[brandLower]; exists {
+		cacheMutex.RUnlock()
+		return result[0], result[1]
+	}
+	cacheMutex.RUnlock()
+
+	return "13fe", "4200"
 }
 
-// SerialFor generates a serial number for a given brand
 func SerialFor(brand string) string {
-	if strings.ToLower(brand) == "sandisk" {
+	brandLower := strings.ToLower(brand)
+
+	if brandLower == "sandisk" {
 		return "4C530001" + randHex(12)
 	}
 	return randHex(16)
 }
 
-// randHex generates a random hexadecimal string
 func randHex(n int) string {
-	b := make([]byte, (n+1)/2)
+	bufferSize := (n + 1) / 2
+	b := make([]byte, bufferSize)
+
 	_, _ = rand.Read(b)
+
 	s := strings.ToUpper(hex.EncodeToString(b))
+
 	if len(s) > n {
 		s = s[:n]
 	}
+
 	return s
 }
