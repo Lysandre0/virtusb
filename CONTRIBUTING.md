@@ -194,7 +194,7 @@ If you need help with contributions:
 
 ## 📄 License
 
-By contributing to virtusb, you agree that your contributions will be licensed under the MIT License.
+By contributing to virtusb, you agree that your contributions will be licensed under the GNU General Public License v3.
 
 ---
 

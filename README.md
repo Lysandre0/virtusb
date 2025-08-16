@@ -3,7 +3,7 @@
 **Virtual USB Gadget Manager for Linux** - Create and manage virtual USB storage devices using the Linux USB Gadget framework.
 
 [![Go Version](https://img.shields.io/badge/Go-1.22+-blue.svg)](https://golang.org)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-GPL%20v3-green.svg)](LICENSE)
 [![Build Status](https://github.com/your-username/virtusb/workflows/Test/badge.svg)](https://github.com/your-username/virtusb/actions)
 [![Release](https://img.shields.io/github/v/release/your-username/virtusb)](https://github.com/your-username/virtusb/releases)
 
@@ -275,7 +275,7 @@ ls /sys/class/udc/
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the GNU General Public License v3 - see the [LICENSE](LICENSE) file for details.
 
 ## 🤝 Contributing
 

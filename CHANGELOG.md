@@ -25,7 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 - Nothing yet
 
-## [1.0.0] - 2024-08-16
+## [1.0.0] - 2025-08-16
 
 ### Added
 - 🚀 **Initial release** of virtusb
@@ -81,7 +81,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Version History
 
 ### Version 1.0.0
-- **Release Date**: August 16, 2024
+- **Release Date**: August 16, 2025
 - **Status**: Initial stable release
 - **Features**: Complete USB gadget management system
 - **Platforms**: Linux (amd64/arm64), macOS (amd64/arm64)

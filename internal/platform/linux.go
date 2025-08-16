@@ -107,11 +107,16 @@ func (p *LinuxPlatform) IsModuleLoaded(name string) bool {
 		if p.moduleCache == nil {
 			p.moduleCache = make(map[string]bool)
 		}
+		// Check cache again after initialization
+		if loaded, exists := p.moduleCache[name]; exists {
+			return loaded
+		}
 	} else if loaded, exists := p.moduleCache[name]; exists {
 		p.cacheMutex.RUnlock()
 		return loaded
+	} else {
+		p.cacheMutex.RUnlock()
 	}
-	p.cacheMutex.RUnlock()
 
 	loaded := p.checkModuleLoaded(name)
 
@@ -142,11 +147,16 @@ func (p *LinuxPlatform) IsMountpoint(path string) bool {
 		if p.mountCache == nil {
 			p.mountCache = make(map[string]bool)
 		}
+		// Check cache again after initialization
+		if mounted, exists := p.mountCache[path]; exists {
+			return mounted
+		}
 	} else if mounted, exists := p.mountCache[path]; exists {
 		p.cacheMutex.RUnlock()
 		return mounted
+	} else {
+		p.cacheMutex.RUnlock()
 	}
-	p.cacheMutex.RUnlock()
 
 	mounted := p.checkMountpoint(path)
 
