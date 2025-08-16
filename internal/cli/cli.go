@@ -215,6 +215,10 @@ func (cli *CLI) handleEnable(args []string) error {
 	}
 
 	name := args[0]
+	if err := cli.validateGadgetName(name); err != nil {
+		return fmt.Errorf("invalid gadget name: %w", err)
+	}
+
 	ctx := cli.createContext()
 
 	if err := cli.gadgetManager.Enable(ctx, name); err != nil {
@@ -231,6 +235,10 @@ func (cli *CLI) handleDisable(args []string) error {
 	}
 
 	name := args[0]
+	if err := cli.validateGadgetName(name); err != nil {
+		return fmt.Errorf("invalid gadget name: %w", err)
+	}
+
 	ctx := cli.createContext()
 
 	if err := cli.gadgetManager.Disable(ctx, name); err != nil {
@@ -247,6 +255,10 @@ func (cli *CLI) handleDelete(args []string) error {
 	}
 
 	name := args[0]
+	if err := cli.validateGadgetName(name); err != nil {
+		return fmt.Errorf("invalid gadget name: %w", err)
+	}
+
 	ctx := cli.createContext()
 
 	if err := cli.gadgetManager.Delete(ctx, name); err != nil {
@@ -284,14 +296,38 @@ func (cli *CLI) validateGadgetName(name string) error {
 		return fmt.Errorf("gadget name required")
 	}
 
+	if len(name) < 1 {
+		return fmt.Errorf("gadget name too short (min 1 character)")
+	}
+
 	if len(name) > 50 {
 		return fmt.Errorf("name too long (maximum 50 characters)")
 	}
 
-	invalidChars := []string{"/", "\\", ":", "*", "?", "\"", "<", ">", "|"}
+	// Check for leading/trailing whitespace
+	if strings.TrimSpace(name) != name {
+		return fmt.Errorf("gadget name cannot have leading or trailing whitespace")
+	}
+
+	// Check for control characters
+	for _, char := range name {
+		if char < 32 || char == 127 {
+			return fmt.Errorf("gadget name cannot contain control characters")
+		}
+	}
+
+	invalidChars := []string{"/", "\\", ":", "*", "?", "\"", "<", ">", "|", ".."}
 	for _, char := range invalidChars {
 		if strings.Contains(name, char) {
 			return fmt.Errorf("name cannot contain '%s'", char)
+		}
+	}
+
+	// Check for reserved names
+	reservedNames := []string{".", "..", "null", "zero", "random", "urandom"}
+	for _, reserved := range reservedNames {
+		if strings.ToLower(name) == reserved {
+			return fmt.Errorf("gadget name cannot be reserved name: %s", reserved)
 		}
 	}
 

@@ -99,14 +99,27 @@ func (m *Manager) validateSizeCached(size string) error {
 }
 
 func (m *Manager) createImageFileOptimized(ctx Context, path, size string) error {
+	// Validate path is not empty
+	if path == "" {
+		return fmt.Errorf("image path cannot be empty")
+	}
+
+	// Validate size format
+	if err := m.validateSize(size); err != nil {
+		return fmt.Errorf("invalid size format: %w", err)
+	}
+
+	// Try fallocate first (most efficient)
 	if err := ctx.Platform.RunCommand("fallocate", "-l", size, path); err == nil {
 		return nil
 	}
 
+	// Try truncate as fallback
 	if err := ctx.Platform.RunCommand("truncate", "-s", size, path); err == nil {
 		return nil
 	}
 
+	// Use dd as last resort
 	if err := ctx.Platform.RunCommand("dd", "if=/dev/zero", "of="+path, "bs=1M", "count=64"); err != nil {
 		return fmt.Errorf("failed to create image file with fallocate, truncate, and dd: %w", err)
 	}
@@ -115,13 +128,42 @@ func (m *Manager) createImageFileOptimized(ctx Context, path, size string) error
 }
 
 func (m *Manager) validateSize(size string) error {
+	if size == "" {
+		return fmt.Errorf("size cannot be empty")
+	}
+
 	if len(size) < 2 {
 		return fmt.Errorf("size too short")
 	}
 
+	// Extract numeric part
+	numericPart := size[:len(size)-1]
+	if numericPart == "" {
+		return fmt.Errorf("size must have a numeric value")
+	}
+
+	// Validate numeric part
+	for _, char := range numericPart {
+		if char < '0' || char > '9' {
+			return fmt.Errorf("size must contain only digits and unit")
+		}
+	}
+
+	// Validate unit
 	unit := size[len(size)-1]
 	if unit != 'M' && unit != 'G' {
 		return fmt.Errorf("invalid size unit, must be M or G")
+	}
+
+	// Validate reasonable limits
+	if unit == 'M' {
+		if len(numericPart) > 3 || (len(numericPart) == 3 && numericPart > "512") {
+			return fmt.Errorf("size too large for M unit")
+		}
+	} else if unit == 'G' {
+		if len(numericPart) > 2 || (len(numericPart) == 2 && numericPart > "64") {
+			return fmt.Errorf("size too large for G unit")
+		}
 	}
 
 	return nil

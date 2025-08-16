@@ -281,14 +281,42 @@ func (m *Manager) validateCreateOptions(opts CreateOptions) error {
 }
 
 func (m *Manager) validateGadgetName(name string) error {
+	if name == "" {
+		return fmt.Errorf("gadget name cannot be empty")
+	}
+
+	if len(name) < 1 {
+		return fmt.Errorf("gadget name too short (min 1 character)")
+	}
+
 	if len(name) > 50 {
 		return fmt.Errorf("gadget name too long (max 50 characters)")
 	}
 
-	invalidChars := []string{"/", "\\", ":", "*", "?", "\"", "<", ">", "|"}
+	// Check for leading/trailing whitespace
+	if strings.TrimSpace(name) != name {
+		return fmt.Errorf("gadget name cannot have leading or trailing whitespace")
+	}
+
+	// Check for control characters
+	for _, char := range name {
+		if char < 32 || char == 127 {
+			return fmt.Errorf("gadget name cannot contain control characters")
+		}
+	}
+
+	invalidChars := []string{"/", "\\", ":", "*", "?", "\"", "<", ">", "|", ".."}
 	for _, char := range invalidChars {
 		if strings.Contains(name, char) {
 			return fmt.Errorf("gadget name cannot contain '%s'", char)
+		}
+	}
+
+	// Check for reserved names
+	reservedNames := []string{".", "..", "null", "zero", "random", "urandom"}
+	for _, reserved := range reservedNames {
+		if strings.ToLower(name) == reserved {
+			return fmt.Errorf("gadget name cannot be reserved name: %s", reserved)
 		}
 	}
 
@@ -451,7 +479,10 @@ func (m *Manager) createGadgetStructure(ctx Context, name, vid, pid, serial, bra
 	linkDst := filepath.Join(gadgetPath, "configs/c.1", "mass_storage.0")
 	linkSrc := filepath.Join(gadgetPath, "functions/mass_storage.0")
 
-	os.Remove(linkDst)
+	// Remove existing symlink if it exists
+	if err := os.Remove(linkDst); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove existing symlink: %w", err)
+	}
 
 	if err := os.Symlink(linkSrc, linkDst); err != nil {
 		return fmt.Errorf("function linking failed: %w", err)
@@ -471,6 +502,10 @@ func (m *Manager) saveMetadata(ctx Context, gadget *Gadget) error {
 }
 
 func (m *Manager) parseMetadata(content string) (*Gadget, error) {
+	if content == "" {
+		return nil, fmt.Errorf("empty metadata content")
+	}
+
 	lines := strings.Split(content, "\n")
 	metadata := make(map[string]string, len(lines))
 
@@ -480,9 +515,11 @@ func (m *Manager) parseMetadata(content string) (*Gadget, error) {
 			continue
 		}
 		if idx := strings.IndexByte(line, '='); idx > 0 {
-			key := line[:idx]
-			value := strings.Trim(line[idx+1:], "\"")
-			metadata[key] = value
+			key := strings.TrimSpace(line[:idx])
+			value := strings.Trim(strings.Trim(line[idx+1:], "\""), " ")
+			if key != "" && value != "" {
+				metadata[key] = value
+			}
 		}
 	}
 
@@ -491,6 +528,26 @@ func (m *Manager) parseMetadata(content string) (*Gadget, error) {
 		if metadata[field] == "" {
 			return nil, fmt.Errorf("missing required field: %s", field)
 		}
+	}
+
+	// Validate gadget name
+	if err := m.validateGadgetName(metadata["NAME"]); err != nil {
+		return nil, fmt.Errorf("invalid gadget name in metadata: %w", err)
+	}
+
+	// Validate brand
+	if !m.isValidBrand(metadata["BRAND"]) {
+		return nil, fmt.Errorf("invalid brand in metadata: %s", metadata["BRAND"])
+	}
+
+	// Validate filesystem
+	if !m.isValidFS(metadata["FS"]) {
+		return nil, fmt.Errorf("invalid filesystem in metadata: %s", metadata["FS"])
+	}
+
+	// Validate size
+	if !m.isValidSize(metadata["SIZE"]) {
+		return nil, fmt.Errorf("invalid size in metadata: %s", metadata["SIZE"])
 	}
 
 	gadget := &Gadget{

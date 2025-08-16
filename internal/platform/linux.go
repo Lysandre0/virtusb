@@ -99,34 +99,19 @@ func (p *LinuxPlatform) LoadModule(name string) error {
 }
 
 func (p *LinuxPlatform) IsModuleLoaded(name string) bool {
-	p.cacheMutex.RLock()
-	if p.moduleCache == nil {
-		p.cacheMutex.RUnlock()
-		p.cacheMutex.Lock()
-		defer p.cacheMutex.Unlock()
-		if p.moduleCache == nil {
-			p.moduleCache = make(map[string]bool)
-		}
-		// Check cache again after initialization
-		if loaded, exists := p.moduleCache[name]; exists {
-			return loaded
-		}
-	} else if loaded, exists := p.moduleCache[name]; exists {
-		p.cacheMutex.RUnlock()
-		return loaded
-	} else {
-		p.cacheMutex.RUnlock()
-	}
-
-	loaded := p.checkModuleLoaded(name)
-
 	p.cacheMutex.Lock()
+	defer p.cacheMutex.Unlock()
+
 	if p.moduleCache == nil {
 		p.moduleCache = make(map[string]bool)
 	}
-	p.moduleCache[name] = loaded
-	p.cacheMutex.Unlock()
 
+	if loaded, exists := p.moduleCache[name]; exists {
+		return loaded
+	}
+
+	loaded := p.checkModuleLoaded(name)
+	p.moduleCache[name] = loaded
 	return loaded
 }
 
@@ -139,34 +124,19 @@ func (p *LinuxPlatform) checkModuleLoaded(name string) bool {
 }
 
 func (p *LinuxPlatform) IsMountpoint(path string) bool {
-	p.cacheMutex.RLock()
-	if p.mountCache == nil {
-		p.cacheMutex.RUnlock()
-		p.cacheMutex.Lock()
-		defer p.cacheMutex.Unlock()
-		if p.mountCache == nil {
-			p.mountCache = make(map[string]bool)
-		}
-		// Check cache again after initialization
-		if mounted, exists := p.mountCache[path]; exists {
-			return mounted
-		}
-	} else if mounted, exists := p.mountCache[path]; exists {
-		p.cacheMutex.RUnlock()
-		return mounted
-	} else {
-		p.cacheMutex.RUnlock()
-	}
-
-	mounted := p.checkMountpoint(path)
-
 	p.cacheMutex.Lock()
+	defer p.cacheMutex.Unlock()
+
 	if p.mountCache == nil {
 		p.mountCache = make(map[string]bool)
 	}
-	p.mountCache[path] = mounted
-	p.cacheMutex.Unlock()
 
+	if mounted, exists := p.mountCache[path]; exists {
+		return mounted
+	}
+
+	mounted := p.checkMountpoint(path)
+	p.mountCache[path] = mounted
 	return mounted
 }
 
@@ -205,10 +175,26 @@ func (p *LinuxPlatform) RunCommandQuiet(name string, args ...string) error {
 }
 
 func (p *LinuxPlatform) WriteString(path, content string) error {
-	return os.WriteFile(path, []byte(content), 0644)
+	// Validate path is not empty
+	if path == "" {
+		return fmt.Errorf("path cannot be empty")
+	}
+
+	// Use more restrictive permissions for security
+	return os.WriteFile(path, []byte(content), 0600)
 }
 
 func (p *LinuxPlatform) ReadString(path string) (string, error) {
+	// Validate path is not empty
+	if path == "" {
+		return "", fmt.Errorf("path cannot be empty")
+	}
+
+	// Validate path is not a directory traversal attempt
+	if strings.Contains(path, "..") {
+		return "", fmt.Errorf("path traversal not allowed")
+	}
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", err
@@ -217,10 +203,26 @@ func (p *LinuxPlatform) ReadString(path string) (string, error) {
 }
 
 func (p *LinuxPlatform) FileExists(path string) bool {
+	// Validate path is not empty
+	if path == "" {
+		return false
+	}
+
+	// Validate path is not a directory traversal attempt
+	if strings.Contains(path, "..") {
+		return false
+	}
+
 	_, err := os.Stat(path)
 	return err == nil
 }
 
 func (p *LinuxPlatform) CreateDirectory(path string) error {
-	return os.MkdirAll(path, 0755)
+	// Validate path is not empty
+	if path == "" {
+		return fmt.Errorf("path cannot be empty")
+	}
+
+	// Use more restrictive permissions for security
+	return os.MkdirAll(path, 0700)
 }

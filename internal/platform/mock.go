@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // MockPlatform implements Platform for testing
@@ -97,16 +98,37 @@ func (p *MockPlatform) RunCommandQuiet(name string, args ...string) error {
 }
 
 func (p *MockPlatform) WriteString(path, content string) error {
+	// Validate path is not empty
+	if path == "" {
+		return fmt.Errorf("path cannot be empty")
+	}
+
+	// Validate path is not a directory traversal attempt
+	if strings.Contains(path, "..") {
+		return fmt.Errorf("path traversal not allowed")
+	}
+
 	// Create parent directory if necessary
 	dir := filepath.Dir(path)
 	if err := p.CreateDirectory(dir); err != nil {
 		return fmt.Errorf("failed to create directory for %s: %w", path, err)
 	}
 
-	return os.WriteFile(path, []byte(content), 0o644)
+	// Use more restrictive permissions for security
+	return os.WriteFile(path, []byte(content), 0600)
 }
 
 func (p *MockPlatform) ReadString(path string) (string, error) {
+	// Validate path is not empty
+	if path == "" {
+		return "", fmt.Errorf("path cannot be empty")
+	}
+
+	// Validate path is not a directory traversal attempt
+	if strings.Contains(path, "..") {
+		return "", fmt.Errorf("path traversal not allowed")
+	}
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", err
@@ -115,10 +137,31 @@ func (p *MockPlatform) ReadString(path string) (string, error) {
 }
 
 func (p *MockPlatform) FileExists(path string) bool {
+	// Validate path is not empty
+	if path == "" {
+		return false
+	}
+
+	// Validate path is not a directory traversal attempt
+	if strings.Contains(path, "..") {
+		return false
+	}
+
 	_, err := os.Stat(path)
 	return err == nil
 }
 
 func (p *MockPlatform) CreateDirectory(path string) error {
-	return os.MkdirAll(path, 0o755)
+	// Validate path is not empty
+	if path == "" {
+		return fmt.Errorf("path cannot be empty")
+	}
+
+	// Validate path is not a directory traversal attempt
+	if strings.Contains(path, "..") {
+		return fmt.Errorf("path traversal not allowed")
+	}
+
+	// Use more restrictive permissions for security
+	return os.MkdirAll(path, 0700)
 }

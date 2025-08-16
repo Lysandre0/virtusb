@@ -20,7 +20,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Nothing yet
 
 ### Fixed
-- Nothing yet
+- 🔧 **Fixed deadlock in mutex handling** - Resolved `fatal error: all goroutines are asleep - deadlock!` by simplifying double-checked locking in `IsModuleLoaded` and `IsMountpoint` methods
+- 🔧 **Fixed RWMutex unlock error** - Resolved `fatal error: sync: RUnlock of unlocked RWMutex` by correcting mutex management logic
+
+### Security
+- 🔒 **Enhanced input validation** - Added comprehensive validation for gadget names, sizes, and file paths
+- 🔒 **Path traversal protection** - Added protection against directory traversal attacks in file operations
+- 🔒 **Improved file permissions** - Changed from 0644/0755 to 0600/0700 for better security
+- 🔒 **Enhanced metadata validation** - Added validation for all metadata fields with proper error handling
+- 🔒 **Command injection protection** - Ensured all command execution uses proper argument separation
+- 🔒 **Reserved name protection** - Added protection against using reserved system names
+- 🔒 **Control character validation** - Added validation to prevent control characters in names
+- 🔒 **Whitespace validation** - Added validation for leading/trailing whitespace in names
+- 🔒 **Size limit validation** - Added reasonable limits for file sizes (max 512M, 64G)
+- 🔒 **Error handling improvements** - Enhanced error handling with proper context and validation
 
 ### Security
 - Nothing yet
