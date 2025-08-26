@@ -207,7 +207,7 @@ create_image() {
         exit 1
     }
     
-    echo "💿 Image created successfully"
+
 }
 
 # Gadget management
@@ -251,7 +251,7 @@ SIZE="$size"
 CREATED_AT="$(date -Iseconds)"
 EOF
     
-    echo "🔧 Device '$name' configured"
+    echo "🔧 Device $name is ready"
 }
 
 enable_gadget() {
@@ -268,7 +268,7 @@ enable_gadget() {
         local current_udc
         current_udc=$(cat "$gadget_path/UDC" 2>/dev/null || echo "")
         if [[ -n "$current_udc" ]]; then
-            echo "🟢 Device '$name' already activated (UDC: $current_udc)"
+            echo "🟢 Device $name already mounted"
             return 0
         fi
     fi
@@ -320,12 +320,12 @@ enable_gadget() {
             
             # Check if device appears in lsusb
             if lsusb | grep -q "$vid_pid"; then
-                echo "🟢 Device '$name' activated (UDC: $udc)"
+                echo "🟢 Device $name mounted"
                 return 0
             else
                 # Device not detected, clean up
                 echo "" > "$gadget_path/UDC" 2>/dev/null || true
-                log_error "Device '$name' failed to activate - not detected by system"
+                log_error "Device $name failed to mount - not detected by system"
                 exit 1
             fi
         fi
@@ -345,7 +345,7 @@ disable_gadget() {
     }
     
     echo "" > "$gadget_path/UDC" 2>/dev/null || true
-    echo "⏹️ Device '$name' deactivated"
+    echo "⏹️ Device $name unmounted"
 }
 
 delete_gadget() {
@@ -357,20 +357,51 @@ delete_gadget() {
         exit 1
     }
     
-    # Disable first
-    [[ -f "$gadget_path/UDC" && -s "$gadget_path/UDC" ]] && disable_gadget "$name"
+    # Disable first (silently)
+    [[ -f "$gadget_path/UDC" && -s "$gadget_path/UDC" ]] && echo "" > "$gadget_path/UDC" 2>/dev/null || true
     
-    # Remove gadget structure
+    # Remove gadget structure (configfs requires specific order)
     rm -f "$gadget_path/configs/c.1/mass_storage.0" 2>/dev/null || true
-    rmdir -p "$gadget_path/functions/mass_storage.0/lun.0" 2>/dev/null || true
-    rmdir -p "$gadget_path/configs/c.1/strings/0x409" 2>/dev/null || true
-    rmdir -p "$gadget_path" 2>/dev/null || true
+    rmdir "$gadget_path/configs/c.1/strings/0x409" 2>/dev/null || true
+    rmdir "$gadget_path/configs/c.1" 2>/dev/null || true
+    rmdir "$gadget_path/functions/mass_storage.0/lun.0" 2>/dev/null || true
+    rmdir "$gadget_path/functions/mass_storage.0" 2>/dev/null || true
+    rmdir "$gadget_path/functions" 2>/dev/null || true
+    rmdir "$gadget_path/strings/0x409" 2>/dev/null || true
+    rmdir "$gadget_path/strings" 2>/dev/null || true
+    rmdir "$gadget_path/os_desc" 2>/dev/null || true
+    rmdir "$gadget_path/webusb" 2>/dev/null || true
+    rmdir "$gadget_path/configs" 2>/dev/null || true
+    
+    # Clear configfs files before removal
+    echo "" > "$gadget_path/UDC" 2>/dev/null || true
+    echo "" > "$gadget_path/idVendor" 2>/dev/null || true
+    echo "" > "$gadget_path/idProduct" 2>/dev/null || true
+    echo "" > "$gadget_path/bcdDevice" 2>/dev/null || true
+    echo "" > "$gadget_path/bcdUSB" 2>/dev/null || true
+    echo "" > "$gadget_path/bDeviceClass" 2>/dev/null || true
+    echo "" > "$gadget_path/bDeviceProtocol" 2>/dev/null || true
+    echo "" > "$gadget_path/bDeviceSubClass" 2>/dev/null || true
+    echo "" > "$gadget_path/bMaxPacketSize0" 2>/dev/null || true
+    echo "" > "$gadget_path/max_speed" 2>/dev/null || true
+    
+    # Force removal of gadget directory
+    rmdir "$gadget_path" 2>/dev/null || {
+        log_error "Failed to remove gadget directory, attempting module reload..."
+        # If removal fails, try to force it by reloading the module
+        modprobe -r dummy_hcd 2>/dev/null || true
+        sleep 2
+        modprobe dummy_hcd num=30 2>/dev/null || {
+            log_error "Failed to reload dummy_hcd module"
+            exit 1
+        }
+    }
     
     # Remove data files
     rm -f "$METADATA_DIR/$name.meta"
     rm -f "$IMAGE_DIR/$name.img"
     
-    echo "🗑️ Device '$name' removed"
+    echo "🗑️ Device $name removed"
 }
 
 # Integrity checking
@@ -405,11 +436,33 @@ purge() {
         # Disable first
         [[ -f "$gadget_dir/UDC" && -s "$gadget_dir/UDC" ]] && echo "" > "$gadget_dir/UDC" 2>/dev/null || true
         
-        # Remove structure
+        # Remove structure (configfs requires specific order)
         rm -f "$gadget_dir/configs/c.1/mass_storage.0" 2>/dev/null || true
-        rmdir -p "$gadget_dir/functions/mass_storage.0/lun.0" 2>/dev/null || true
-        rmdir -p "$gadget_dir/configs/c.1/strings/0x409" 2>/dev/null || true
-        rmdir -p "$gadget_dir" 2>/dev/null || true
+        rmdir "$gadget_dir/configs/c.1/strings/0x409" 2>/dev/null || true
+        rmdir "$gadget_dir/configs/c.1" 2>/dev/null || true
+        rmdir "$gadget_dir/functions/mass_storage.0/lun.0" 2>/dev/null || true
+        rmdir "$gadget_dir/functions/mass_storage.0" 2>/dev/null || true
+        rmdir "$gadget_dir/functions" 2>/dev/null || true
+        rmdir "$gadget_dir/strings/0x409" 2>/dev/null || true
+        rmdir "$gadget_dir/strings" 2>/dev/null || true
+        rmdir "$gadget_dir/os_desc" 2>/dev/null || true
+        rmdir "$gadget_dir/webusb" 2>/dev/null || true
+        rmdir "$gadget_dir/configs" 2>/dev/null || true
+        
+        # Clear configfs files before removal
+        echo "" > "$gadget_dir/UDC" 2>/dev/null || true
+        echo "" > "$gadget_dir/idVendor" 2>/dev/null || true
+        echo "" > "$gadget_dir/idProduct" 2>/dev/null || true
+        echo "" > "$gadget_dir/bcdDevice" 2>/dev/null || true
+        echo "" > "$gadget_dir/bcdUSB" 2>/dev/null || true
+        echo "" > "$gadget_dir/bDeviceClass" 2>/dev/null || true
+        echo "" > "$gadget_dir/bDeviceProtocol" 2>/dev/null || true
+        echo "" > "$gadget_dir/bDeviceSubClass" 2>/dev/null || true
+        echo "" > "$gadget_dir/bMaxPacketSize0" 2>/dev/null || true
+        echo "" > "$gadget_dir/max_speed" 2>/dev/null || true
+        
+        # Force removal of gadget directory
+        rmdir "$gadget_dir" 2>/dev/null || true
     done
     
     # Clean data directories
