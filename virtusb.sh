@@ -87,29 +87,49 @@ get_enabled_devices() {
 }
 
 restore_enabled_devices() {
-    local enabled_devices
     local silent="${1:-false}"
-    read -ra enabled_devices <<< "$(get_enabled_devices)"
-    
-    if [[ ${#enabled_devices[@]} -eq 0 ]]; then
-        return 0
-    fi
     
     local restored_count=0
     local failed_count=0
     
-    for device in "${enabled_devices[@]}"; do
+    # Restore ALL gadgets that have metadata (not just enabled ones)
+    for meta_file in "$METADATA_DIR"/*.meta; do
+        [[ -f "$meta_file" ]] || continue
+        
+        # Extract name from metadata file
+        local device=""
+        while IFS='=' read -r key value; do
+            value="${value//\"/}"
+            [[ "$key" == "NAME" ]] && device="$value"
+        done < "$meta_file"
+        
+        [[ -n "$device" ]] || continue
+        
         if check_gadget_integrity "$device"; then
-            # Gadget exists and is complete, try to enable it
-            enable_gadget "$device" "true" 2>/dev/null || {
-                log_error "Failed to activate gadget: $device"
-                remove_enabled_state "$device"
-                ((failed_count++))
-            }
+            # Gadget exists and is complete, try to enable it if it was enabled before
+            local was_enabled=false
+            local enabled_devices
+            read -ra enabled_devices <<< "$(get_enabled_devices)"
+            for enabled_device in "${enabled_devices[@]}"; do
+                if [[ "$enabled_device" == "$device" ]]; then
+                    was_enabled=true
+                    break
+                fi
+            done
+            
+            if [[ "$was_enabled" == "true" ]]; then
+                enable_gadget "$device" "true" 2>/dev/null || {
+                    log_error "Failed to activate gadget: $device"
+                    remove_enabled_state "$device"
+                    ((failed_count++))
+                }
+            fi
         else
             # Gadget missing but has metadata - try to recreate it
-            if [[ -f "$METADATA_DIR/$device.meta" ]] && [[ -f "$IMAGE_DIR/$device.img" ]]; then
-                log_info "Recreating gadget after reboot: $device"
+            if [[ -f "$IMAGE_DIR/$device.img" ]]; then
+                if [[ "$silent" != "true" ]]; then
+                    log_info "Recreating gadget after reboot: $device"
+                fi
                 
                 # Read metadata to recreate gadget
                 local vid_pid="" vendor="" product="" serial="" brand="" size=""
@@ -123,7 +143,7 @@ restore_enabled_devices() {
                         BRAND) brand="$value" ;;
                         SIZE) size="$value" ;;
                     esac
-                done < "$METADATA_DIR/$device.meta"
+                done < "$meta_file"
                 
                 # Recreate gadget if we have all required data
                 if [[ -n "$vid_pid" && -n "$vendor" && -n "$product" && -n "$serial" && -n "$brand" && -n "$size" ]]; then
@@ -146,21 +166,32 @@ restore_enabled_devices() {
                     # Link function
                     ln -sf "$gadget_path/functions/mass_storage.0" "$gadget_path/configs/c.1/"
                     
-                    # Try to enable the recreated gadget
-                    enable_gadget "$device" "true" 2>/dev/null || {
-                        log_error "Failed to activate recreated gadget: $device"
-                        remove_enabled_state "$device"
-                        ((failed_count++))
-                    }
+                    # Check if this gadget was enabled before reboot
+                    local was_enabled=false
+                    local enabled_devices
+                    read -ra enabled_devices <<< "$(get_enabled_devices)"
+                    for enabled_device in "${enabled_devices[@]}"; do
+                        if [[ "$enabled_device" == "$device" ]]; then
+                            was_enabled=true
+                            break
+                        fi
+                    done
+                    
+                    # Try to enable the recreated gadget if it was enabled before
+                    if [[ "$was_enabled" == "true" ]]; then
+                        enable_gadget "$device" "true" 2>/dev/null || {
+                            log_error "Failed to activate recreated gadget: $device"
+                            remove_enabled_state "$device"
+                            ((failed_count++))
+                        }
+                    fi
                     ((restored_count++))
                 else
                     log_error "Incomplete metadata for gadget: $device"
-                    remove_enabled_state "$device"
                     ((failed_count++))
                 fi
             else
-                # Missing metadata or image, remove from enabled state
-                remove_enabled_state "$device"
+                log_error "Missing image file for gadget: $device"
                 ((failed_count++))
             fi
         fi
@@ -180,6 +211,8 @@ restore_enabled_devices() {
         
         if [[ -n "$name" ]]; then
             # Check if gadget exists in configfs and is not in enabled list
+            local enabled_devices
+            read -ra enabled_devices <<< "$(get_enabled_devices)"
             if [[ ! -d "$GADGET_ROOT/virtusb-$name" ]] && [[ ! " ${enabled_devices[*]} " =~ " ${name} " ]]; then
                 rm -f "$meta_file"
                 rm -f "$IMAGE_DIR/$name.img"
