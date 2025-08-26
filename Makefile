@@ -12,7 +12,7 @@ help: ## Show this help
 
 install: ## Install virtusb
 	@echo "Installing virtusb..."
-	@sudo cp src/virtusb.sh /usr/local/bin/virtusb
+	@sudo cp virtusb.sh /usr/local/bin/virtusb
 	@sudo chmod +x /usr/local/bin/virtusb
 	@sudo mkdir -p /etc/virtusb
 	@sudo mkdir -p /opt/virtusb/data
@@ -26,6 +26,7 @@ install: ## Install virtusb
 	@echo 'Type=oneshot' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
 	@echo 'RemainAfterExit=yes' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
 	@echo 'ExecStart=/usr/local/bin/virtusb --load-modules' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
+	@echo 'ExecStartPost=/usr/local/bin/virtusb --restore-state' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
 	@echo 'ExecStartPost=/bin/bash -c "mkdir -p /opt/virtusb/logs && echo virtusb started at $(date) >> /opt/virtusb/logs/service.log"' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
 	@echo 'ExecStop=/bin/true' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
 	@echo 'Restart=on-failure' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null

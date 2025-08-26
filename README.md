@@ -12,6 +12,7 @@ The simple and reliable solution for creating virtual USB drives on Linux system
 - **Realistic device simulation** - Supports popular USB drive brands with authentic VID:PID pairs
 - **Simple management** - Easy create, enable, disable, and delete operations
 - **Clean interface** - Minimal, user-friendly output with status indicators
+- **State persistence** - Automatically restores enabled devices after system reboot
 
 ## 🚀 Installation
 
@@ -40,6 +41,10 @@ sudo virtusb disable mykey
 sudo virtusb delete mykey
 ```
 
+## 🔄 State Persistence
+
+virtusb automatically saves and restores the state of enabled devices across system reboots. When you enable a device, it will be automatically restored after system restart.
+
 ## 🔧 Commands Reference
 
 | Command | Description |
@@ -64,30 +69,6 @@ sudo virtusb delete mykey
 - **transcend** (VID:PID: 8564:1000)
 - **adata** (VID:PID: 125f:c96a)
 - **corsair** (VID:PID: 1b1c:1a0d)
-
-## 🔗 VM Integration
-
-After enabling a device, you can attach it to your virtual machines:
-
-### Proxmox
-```bash
-qm set <VM_ID> -usb0 host=<VID>:<PID>
-```
-
-### VMware ESXi
-```bash
-vim-cmd vmsvc/device.connectusb <VM_ID> <VID>:<PID>
-```
-
-### KVM/QEMU
-```bash
-virsh attach-device <VM_NAME> <XML_FILE>
-```
-
-### VirtualBox
-```bash
-VBoxManage controlvm <VM_NAME> usbattach <VID>:<PID>
-```
 
 ## 🏗️ Installation Structure
 

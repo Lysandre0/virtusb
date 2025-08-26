@@ -16,18 +16,102 @@ readonly GADGET_ROOT="/sys/kernel/config/usb_gadget"
 readonly STATE_DIR="/opt/virtusb/data"
 readonly IMAGE_DIR="/opt/virtusb/data/images"
 readonly METADATA_DIR="/opt/virtusb/data/metadata"
+readonly ENABLED_STATE_FILE="/opt/virtusb/data/enabled_devices.txt"
 
 # Colors
 readonly RED='\033[0;31m'
+readonly GREEN='\033[0;32m'
+readonly YELLOW='\033[1;33m'
 readonly NC='\033[0m'
 
 # Logging
 
 log_error() { echo -e "${RED}❌${NC} $1"; }
+log_success() { echo -e "${GREEN}✅${NC} $1"; }
+log_info() { echo -e "${YELLOW}ℹ️${NC} $1"; }
 
 # Utilities
 
+# State management
+save_enabled_state() {
+    local name="$1"
+    local enabled_devices=()
+    
+    # Read existing enabled devices
+    if [[ -f "$ENABLED_STATE_FILE" ]]; then
+        while IFS= read -r device; do
+            [[ -n "$device" ]] && enabled_devices+=("$device")
+        done < "$ENABLED_STATE_FILE"
+    fi
+    
+    # Add new device if not already present
+    if [[ ! " ${enabled_devices[*]} " =~ " ${name} " ]]; then
+        enabled_devices+=("$name")
+    fi
+    
+    # Save updated list
+    printf "%s\n" "${enabled_devices[@]}" > "$ENABLED_STATE_FILE"
+}
 
+remove_enabled_state() {
+    local name="$1"
+    local enabled_devices=()
+    local updated_devices=()
+    
+    # Read existing enabled devices
+    if [[ -f "$ENABLED_STATE_FILE" ]]; then
+        while IFS= read -r device; do
+            [[ -n "$device" ]] && enabled_devices+=("$device")
+        done < "$ENABLED_STATE_FILE"
+    fi
+    
+    # Remove the specified device
+    for device in "${enabled_devices[@]}"; do
+        [[ "$device" != "$name" ]] && updated_devices+=("$device")
+    done
+    
+    # Save updated list
+    printf "%s\n" "${updated_devices[@]}" > "$ENABLED_STATE_FILE"
+}
+
+get_enabled_devices() {
+    local enabled_devices=()
+    
+    if [[ -f "$ENABLED_STATE_FILE" ]]; then
+        while IFS= read -r device; do
+            [[ -n "$device" ]] && enabled_devices+=("$device")
+        done < "$ENABLED_STATE_FILE"
+    fi
+    
+    echo "${enabled_devices[@]}"
+}
+
+restore_enabled_devices() {
+    local enabled_devices
+    read -ra enabled_devices <<< "$(get_enabled_devices)"
+    
+    if [[ ${#enabled_devices[@]} -eq 0 ]]; then
+        log_info "Aucun appareil à restaurer"
+        return 0
+    fi
+    
+    log_info "Restauration de ${#enabled_devices[@]} appareil(s)..."
+    
+    for device in "${enabled_devices[@]}"; do
+        if check_gadget_integrity "$device"; then
+            log_info "Restauration de l'appareil: $device"
+            enable_gadget "$device" 2>/dev/null || {
+                log_error "Échec de la restauration de l'appareil: $device"
+                remove_enabled_state "$device"
+            }
+        else
+            log_error "Appareil corrompu détecté: $device - suppression de l'état"
+            remove_enabled_state "$device"
+        fi
+    done
+    
+    log_success "Restauration terminée"
+}
 
 # Check root privileges
 check_root() {
@@ -321,6 +405,7 @@ enable_gadget() {
             # Check if device appears in lsusb
             if lsusb | grep -q "$vid_pid"; then
                 echo "🟢 Device $name mounted"
+                save_enabled_state "$name"
                 return 0
             else
                 # Device not detected, clean up
@@ -345,6 +430,7 @@ disable_gadget() {
     }
     
     echo "" > "$gadget_path/UDC" 2>/dev/null || true
+    remove_enabled_state "$name"
     echo "⏹️ Device $name unmounted"
 }
 
@@ -400,6 +486,7 @@ delete_gadget() {
     # Remove data files
     rm -f "$METADATA_DIR/$name.meta"
     rm -f "$IMAGE_DIR/$name.img"
+    remove_enabled_state "$name"
     
     echo "🗑️ Device $name removed"
 }
@@ -468,6 +555,7 @@ purge() {
     # Clean data directories
     rm -rf "$IMAGE_DIR"/* 2>/dev/null || true
     rm -rf "$METADATA_DIR"/* 2>/dev/null || true
+    rm -f "$ENABLED_STATE_FILE" 2>/dev/null || true
     
     # Recreate empty directories
     mkdir -p "$IMAGE_DIR"
@@ -564,6 +652,13 @@ main() {
             check_modules
             check_configfs
             echo "Modules loaded successfully"
+            exit 0
+            ;;
+        --restore-state)
+            # Restore enabled devices state
+            check_modules
+            check_configfs
+            restore_enabled_devices
             exit 0
             ;;
         create|enable|disable|delete|list|purge|help|--help|-h)
