@@ -94,17 +94,78 @@ restore_enabled_devices() {
         return 0
     fi
     
+    local restored_count=0
+    local failed_count=0
+    
     for device in "${enabled_devices[@]}"; do
         if check_gadget_integrity "$device"; then
+            # Gadget exists and is complete, try to enable it
             enable_gadget "$device" "true" 2>/dev/null || {
+                log_error "Échec de l'activation du gadget: $device"
                 remove_enabled_state "$device"
+                ((failed_count++))
             }
         else
-            remove_enabled_state "$device"
+            # Gadget missing but has metadata - try to recreate it
+            if [[ -f "$METADATA_DIR/$device.meta" ]] && [[ -f "$IMAGE_DIR/$device.img" ]]; then
+                log_info "Recréation du gadget après reboot: $device"
+                
+                # Read metadata to recreate gadget
+                local vid_pid="" vendor="" product="" serial="" brand="" size=""
+                while IFS='=' read -r key value; do
+                    value="${value//\"/}"
+                    case "$key" in
+                        VID_PID) vid_pid="$value" ;;
+                        VENDOR) vendor="$value" ;;
+                        PRODUCT) product="$value" ;;
+                        SERIAL) serial="$value" ;;
+                        BRAND) brand="$value" ;;
+                        SIZE) size="$value" ;;
+                    esac
+                done < "$METADATA_DIR/$device.meta"
+                
+                # Recreate gadget if we have all required data
+                if [[ -n "$vid_pid" && -n "$vendor" && -n "$product" && -n "$serial" && -n "$brand" && -n "$size" ]]; then
+                    # Create gadget structure
+                    local gadget_path="$GADGET_ROOT/virtusb-$device"
+                    mkdir -p "$gadget_path"/{strings/0x409,configs/c.1/strings/0x409,functions/mass_storage.0/lun.0}
+                    
+                    # Set vendor/product IDs
+                    echo "0x${vid_pid%:*}" > "$gadget_path/idVendor"
+                    echo "0x${vid_pid#*:}" > "$gadget_path/idProduct"
+                    
+                    # Set strings
+                    echo "$vendor" > "$gadget_path/strings/0x409/manufacturer"
+                    echo "$product" > "$gadget_path/strings/0x409/product"
+                    echo "Config 1" > "$gadget_path/configs/c.1/strings/0x409/configuration"
+                    
+                    # Set mass storage
+                    echo "$IMAGE_DIR/$device.img" > "$gadget_path/functions/mass_storage.0/lun.0/file"
+                    
+                    # Link function
+                    ln -sf "$gadget_path/functions/mass_storage.0" "$gadget_path/configs/c.1/"
+                    
+                    # Try to enable the recreated gadget
+                    enable_gadget "$device" "true" 2>/dev/null || {
+                        log_error "Échec de l'activation du gadget recréé: $device"
+                        remove_enabled_state "$device"
+                        ((failed_count++))
+                    }
+                    ((restored_count++))
+                else
+                    log_error "Métadonnées incomplètes pour le gadget: $device"
+                    remove_enabled_state "$device"
+                    ((failed_count++))
+                fi
+            else
+                # Missing metadata or image, remove from enabled state
+                remove_enabled_state "$device"
+                ((failed_count++))
+            fi
         fi
     done
     
-    # Clean up orphaned metadata files (devices that exist in metadata but not in configfs)
+    # Clean up orphaned metadata files (devices that exist in metadata but not in configfs and not in enabled list)
     local orphaned_count=0
     for meta_file in "$METADATA_DIR"/*.meta; do
         [[ -f "$meta_file" ]] || continue
@@ -117,8 +178,8 @@ restore_enabled_devices() {
         done < "$meta_file"
         
         if [[ -n "$name" ]]; then
-            # Check if gadget exists in configfs
-            if [[ ! -d "$GADGET_ROOT/virtusb-$name" ]]; then
+            # Check if gadget exists in configfs and is not in enabled list
+            if [[ ! -d "$GADGET_ROOT/virtusb-$name" ]] && [[ ! " ${enabled_devices[*]} " =~ " ${name} " ]]; then
                 rm -f "$meta_file"
                 rm -f "$IMAGE_DIR/$name.img"
                 remove_enabled_state "$name"
@@ -126,6 +187,60 @@ restore_enabled_devices() {
             fi
         fi
     done
+    
+    # Clean up orphaned gadgets (gadgets in configfs without metadata)
+    local orphaned_gadgets=0
+    for gadget_dir in "$GADGET_ROOT"/virtusb-*; do
+        [[ -d "$gadget_dir" ]] || continue
+        
+        local gadget_name
+        gadget_name=$(basename "$gadget_dir" | sed 's/^virtusb-//')
+        
+        if [[ ! -f "$METADATA_DIR/$gadget_name.meta" ]]; then
+            # Remove orphaned gadget from configfs
+            echo "" > "$gadget_dir/UDC" 2>/dev/null || true
+            rm -f "$gadget_dir/configs/c.1/mass_storage.0" 2>/dev/null || true
+            rmdir "$gadget_dir/configs/c.1/strings/0x409" 2>/dev/null || true
+            rmdir "$gadget_dir/configs/c.1" 2>/dev/null || true
+            rmdir "$gadget_dir/functions/mass_storage.0/lun.0" 2>/dev/null || true
+            rmdir "$gadget_dir/functions/mass_storage.0" 2>/dev/null || true
+            rmdir "$gadget_dir/functions" 2>/dev/null || true
+            rmdir "$gadget_dir/strings/0x409" 2>/dev/null || true
+            rmdir "$gadget_dir/strings" 2>/dev/null || true
+            rmdir "$gadget_dir/os_desc" 2>/dev/null || true
+            rmdir "$gadget_dir/webusb" 2>/dev/null || true
+            rmdir "$gadget_dir/configs" 2>/dev/null || true
+            rmdir "$gadget_dir" 2>/dev/null || true
+            remove_enabled_state "$gadget_name"
+            ((orphaned_gadgets++))
+        fi
+    done
+    
+    # Clean up orphaned image files (images without metadata)
+    local orphaned_images=0
+    for img_file in "$IMAGE_DIR"/*.img; do
+        [[ -f "$img_file" ]] || continue
+        
+        local img_name
+        img_name=$(basename "$img_file" .img)
+        
+        if [[ ! -f "$METADATA_DIR/$img_name.meta" ]]; then
+            rm -f "$img_file"
+            remove_enabled_state "$img_name"
+            ((orphaned_images++))
+        fi
+    done
+    
+    # Log results
+    if [[ $restored_count -gt 0 ]]; then
+        log_success "Restauration après reboot: $restored_count gadgets recréés et activés"
+    fi
+    if [[ $failed_count -gt 0 ]]; then
+        log_error "Échecs de restauration: $failed_count gadgets"
+    fi
+    if [[ $orphaned_count -gt 0 || $orphaned_gadgets -gt 0 || $orphaned_images -gt 0 ]]; then
+        log_info "Nettoyage automatique après reboot: $orphaned_count métadonnées, $orphaned_gadgets gadgets, $orphaned_images images supprimés"
+    fi
 }
 
 # Check root privileges
@@ -459,63 +574,83 @@ disable_gadget() {
 delete_gadget() {
     local name="$1"
     local gadget_path="$GADGET_ROOT/virtusb-$name"
+    local gadget_exists=false
+    local files_removed=false
     
-    [[ -d "$gadget_path" ]] || { 
-        log_error "Gadget not found: $name"
-        return 1
-    }
-    
-    # Disable first (silently)
-    [[ -f "$gadget_path/UDC" && -s "$gadget_path/UDC" ]] && echo "" > "$gadget_path/UDC" 2>/dev/null || true
-    
-    # Remove gadget structure (configfs requires specific order)
-    rm -f "$gadget_path/configs/c.1/mass_storage.0" 2>/dev/null || true
-    rmdir "$gadget_path/configs/c.1/strings/0x409" 2>/dev/null || true
-    rmdir "$gadget_path/configs/c.1" 2>/dev/null || true
-    rmdir "$gadget_path/functions/mass_storage.0/lun.0" 2>/dev/null || true
-    rmdir "$gadget_path/functions/mass_storage.0" 2>/dev/null || true
-    rmdir "$gadget_path/functions" 2>/dev/null || true
-    rmdir "$gadget_path/strings/0x409" 2>/dev/null || true
-    rmdir "$gadget_path/strings" 2>/dev/null || true
-    rmdir "$gadget_path/os_desc" 2>/dev/null || true
-    rmdir "$gadget_path/webusb" 2>/dev/null || true
-    rmdir "$gadget_path/configs" 2>/dev/null || true
-    
-    # Clear configfs files before removal
-    echo "" > "$gadget_path/UDC" 2>/dev/null || true
-    echo "" > "$gadget_path/idVendor" 2>/dev/null || true
-    echo "" > "$gadget_path/idProduct" 2>/dev/null || true
-    echo "" > "$gadget_path/bcdDevice" 2>/dev/null || true
-    echo "" > "$gadget_path/bcdUSB" 2>/dev/null || true
-    echo "" > "$gadget_path/bDeviceClass" 2>/dev/null || true
-    echo "" > "$gadget_path/bDeviceProtocol" 2>/dev/null || true
-    echo "" > "$gadget_path/bDeviceSubClass" 2>/dev/null || true
-    echo "" > "$gadget_path/bMaxPacketSize0" 2>/dev/null || true
-    echo "" > "$gadget_path/max_speed" 2>/dev/null || true
-    
-    # Force removal of gadget directory
-    rmdir "$gadget_path" 2>/dev/null || {
-        log_error "Failed to remove gadget directory for '$name', attempting module reload..."
-        # If removal fails, try to force it by reloading the module
-        modprobe -r dummy_hcd 2>/dev/null || true
-        sleep 2
-        modprobe dummy_hcd num=30 2>/dev/null || {
-            log_error "Failed to reload dummy_hcd module"
-            return 1
-        }
-        # Try removal again after module reload
+    # Check if gadget exists in configfs
+    if [[ -d "$gadget_path" ]]; then
+        gadget_exists=true
+        
+        # Disable first (silently)
+        [[ -f "$gadget_path/UDC" && -s "$gadget_path/UDC" ]] && echo "" > "$gadget_path/UDC" 2>/dev/null || true
+        
+        # Remove gadget structure (configfs requires specific order)
+        rm -f "$gadget_path/configs/c.1/mass_storage.0" 2>/dev/null || true
+        rmdir "$gadget_path/configs/c.1/strings/0x409" 2>/dev/null || true
+        rmdir "$gadget_path/configs/c.1" 2>/dev/null || true
+        rmdir "$gadget_path/functions/mass_storage.0/lun.0" 2>/dev/null || true
+        rmdir "$gadget_path/functions/mass_storage.0" 2>/dev/null || true
+        rmdir "$gadget_path/functions" 2>/dev/null || true
+        rmdir "$gadget_path/strings/0x409" 2>/dev/null || true
+        rmdir "$gadget_path/strings" 2>/dev/null || true
+        rmdir "$gadget_path/os_desc" 2>/dev/null || true
+        rmdir "$gadget_path/webusb" 2>/dev/null || true
+        rmdir "$gadget_path/configs" 2>/dev/null || true
+        
+        # Clear configfs files before removal
+        echo "" > "$gadget_path/UDC" 2>/dev/null || true
+        echo "" > "$gadget_path/idVendor" 2>/dev/null || true
+        echo "" > "$gadget_path/idProduct" 2>/dev/null || true
+        echo "" > "$gadget_path/bcdDevice" 2>/dev/null || true
+        echo "" > "$gadget_path/bcdUSB" 2>/dev/null || true
+        echo "" > "$gadget_path/bDeviceClass" 2>/dev/null || true
+        echo "" > "$gadget_path/bDeviceProtocol" 2>/dev/null || true
+        echo "" > "$gadget_path/bDeviceSubClass" 2>/dev/null || true
+        echo "" > "$gadget_path/bMaxPacketSize0" 2>/dev/null || true
+        echo "" > "$gadget_path/max_speed" 2>/dev/null || true
+        
+        # Force removal of gadget directory
         rmdir "$gadget_path" 2>/dev/null || {
-            log_error "Still failed to remove gadget directory for '$name' after module reload"
-            return 1
+            log_error "Failed to remove gadget directory for '$name', attempting module reload..."
+            # If removal fails, try to force it by reloading the module
+            modprobe -r dummy_hcd 2>/dev/null || true
+            sleep 2
+            modprobe dummy_hcd num=30 2>/dev/null || {
+                log_error "Failed to reload dummy_hcd module"
+                return 1
+            }
+            # Try removal again after module reload
+            rmdir "$gadget_path" 2>/dev/null || {
+                log_error "Still failed to remove gadget directory for '$name' after module reload"
+                return 1
+            }
         }
-    }
+    fi
     
-    # Remove data files
-    rm -f "$METADATA_DIR/$name.meta"
-    rm -f "$IMAGE_DIR/$name.img"
+    # Remove data files (metadata and image)
+    if [[ -f "$METADATA_DIR/$name.meta" ]]; then
+        rm -f "$METADATA_DIR/$name.meta"
+        files_removed=true
+    fi
+    
+    if [[ -f "$IMAGE_DIR/$name.img" ]]; then
+        rm -f "$IMAGE_DIR/$name.img"
+        files_removed=true
+    fi
+    
+    # Remove from enabled state
     remove_enabled_state "$name"
     
-    echo "🗑️ Device $name removed"
+    # Provide appropriate feedback
+    if [[ "$gadget_exists" == "true" ]]; then
+        echo "🗑️ Device $name removed"
+    elif [[ "$files_removed" == "true" ]]; then
+        echo "🧹 Orphaned files for device $name cleaned up"
+    else
+        log_error "Gadget not found: $name"
+        return 1
+    fi
+    
     return 0
 }
 
@@ -568,16 +703,94 @@ check_system_integrity() {
 # Cleanup
 
 purge() {
-    echo "Remove ALL gadgets? (y/n)"
+    echo "🧹 Nettoyage automatique des fichiers orphelins..."
+    
+    local orphaned_metadata=0
+    local orphaned_gadgets=0
+    local orphaned_images=0
+    
+    # Phase 1: Clean up orphaned metadata files (devices that exist in metadata but not in configfs)
+    for meta_file in "$METADATA_DIR"/*.meta; do
+        [[ -f "$meta_file" ]] || continue
+        
+        # Extract name from metadata file
+        local name=""
+        while IFS='=' read -r key value; do
+            value="${value//\"/}"
+            [[ "$key" == "NAME" ]] && name="$value"
+        done < "$meta_file"
+        
+        if [[ -n "$name" ]]; then
+            # Check if gadget exists in configfs
+            if [[ ! -d "$GADGET_ROOT/virtusb-$name" ]]; then
+                rm -f "$meta_file"
+                rm -f "$IMAGE_DIR/$name.img"
+                remove_enabled_state "$name"
+                ((orphaned_metadata++))
+            fi
+        fi
+    done
+    
+    # Phase 2: Clean up orphaned gadgets (gadgets in configfs without metadata)
+    for gadget_dir in "$GADGET_ROOT"/virtusb-*; do
+        [[ -d "$gadget_dir" ]] || continue
+        
+        local gadget_name
+        gadget_name=$(basename "$gadget_dir" | sed 's/^virtusb-//')
+        
+        if [[ ! -f "$METADATA_DIR/$gadget_name.meta" ]]; then
+            # Remove orphaned gadget from configfs
+            echo "" > "$gadget_dir/UDC" 2>/dev/null || true
+            rm -f "$gadget_dir/configs/c.1/mass_storage.0" 2>/dev/null || true
+            rmdir "$gadget_dir/configs/c.1/strings/0x409" 2>/dev/null || true
+            rmdir "$gadget_dir/configs/c.1" 2>/dev/null || true
+            rmdir "$gadget_dir/functions/mass_storage.0/lun.0" 2>/dev/null || true
+            rmdir "$gadget_dir/functions/mass_storage.0" 2>/dev/null || true
+            rmdir "$gadget_dir/functions" 2>/dev/null || true
+            rmdir "$gadget_dir/strings/0x409" 2>/dev/null || true
+            rmdir "$gadget_dir/strings" 2>/dev/null || true
+            rmdir "$gadget_dir/os_desc" 2>/dev/null || true
+            rmdir "$gadget_dir/webusb" 2>/dev/null || true
+            rmdir "$gadget_dir/configs" 2>/dev/null || true
+            rmdir "$gadget_dir" 2>/dev/null || true
+            remove_enabled_state "$gadget_name"
+            ((orphaned_gadgets++))
+        fi
+    done
+    
+    # Phase 3: Clean up orphaned image files (images without metadata)
+    for img_file in "$IMAGE_DIR"/*.img; do
+        [[ -f "$img_file" ]] || continue
+        
+        local img_name
+        img_name=$(basename "$img_file" .img)
+        
+        if [[ ! -f "$METADATA_DIR/$img_name.meta" ]]; then
+            rm -f "$img_file"
+            remove_enabled_state "$img_name"
+            ((orphaned_images++))
+        fi
+    done
+    
+    if [[ $orphaned_metadata -gt 0 || $orphaned_gadgets -gt 0 || $orphaned_images -gt 0 ]]; then
+        echo "✅ Nettoyage automatique terminé: $orphaned_metadata métadonnées, $orphaned_gadgets gadgets, $orphaned_images images supprimés"
+    else
+        echo "✅ Aucun fichier orphelin trouvé"
+    fi
+    
+    # Ask for confirmation to remove ALL remaining gadgets
+    echo ""
+    echo "Supprimer TOUS les gadgets restants ? (y/n)"
     read -r response
     
     if [[ "$response" != "y" ]]; then
+        echo "❌ Opération annulée"
         return
     fi
     
-    echo "🧹 Starting cleanup process..."
+    echo "🧹 Suppression de tous les gadgets..."
     
-    # Phase 1: Remove all gadgets with metadata
+    # Phase 4: Remove all gadgets with metadata
     local removed_count=0
     for meta_file in "$METADATA_DIR"/*.meta; do
         [[ -f "$meta_file" ]] || continue
@@ -590,17 +803,17 @@ purge() {
         done < "$meta_file"
         
         if [[ -n "$name" ]]; then
-            echo "🗑️ Removing device with metadata: $name"
+            echo "🗑️ Suppression du gadget avec métadonnées: $name"
             delete_gadget "$name" 2>/dev/null || {
-                log_error "Failed to remove device: $name"
+                log_error "Échec de la suppression du gadget: $name"
             }
             ((removed_count++))
         fi
     done
     
-    echo "✅ Removed $removed_count devices with metadata"
+    echo "✅ $removed_count gadgets avec métadonnées supprimés"
     
-    # Phase 2: Remove all remaining orphaned gadgets
+    # Phase 5: Remove all remaining orphaned gadgets (double check)
     local orphaned_count=0
     for gadget_dir in "$GADGET_ROOT"/virtusb-*; do
         [[ -d "$gadget_dir" ]] || continue
@@ -608,7 +821,7 @@ purge() {
         local gadget_name
         gadget_name=$(basename "$gadget_dir" | sed 's/^virtusb-//')
         
-        echo "🗑️ Removing orphaned gadget: $gadget_name"
+        echo "🗑️ Suppression du gadget orphelin: $gadget_name"
         
         # Disable first
         [[ -f "$gadget_dir/UDC" && -s "$gadget_dir/UDC" ]] && echo "" > "$gadget_dir/UDC" 2>/dev/null || true
@@ -640,15 +853,15 @@ purge() {
         
         # Force removal of gadget directory
         rmdir "$gadget_dir" 2>/dev/null || {
-            log_error "Failed to remove orphaned gadget directory: $gadget_dir"
+            log_error "Échec de la suppression du répertoire gadget orphelin: $gadget_dir"
         }
         ((orphaned_count++))
     done
     
-    echo "✅ Removed $orphaned_count orphaned gadgets"
+    echo "✅ $orphaned_count gadgets orphelins supprimés"
     
-    # Phase 3: Clean data directories
-    echo "🧹 Cleaning data directories..."
+    # Phase 6: Clean data directories
+    echo "🧹 Nettoyage des répertoires de données..."
     rm -rf "$IMAGE_DIR"/* 2>/dev/null || true
     rm -rf "$METADATA_DIR"/* 2>/dev/null || true
     rm -f "$ENABLED_STATE_FILE" 2>/dev/null || true
@@ -657,7 +870,7 @@ purge() {
     mkdir -p "$IMAGE_DIR"
     mkdir -p "$METADATA_DIR"
     
-    echo "🧹 All devices cleaned up"
+    echo "🧹 Tous les gadgets ont été nettoyés"
 }
 
 # Display
@@ -691,8 +904,11 @@ list_gadgets() {
         local gadget_path="$GADGET_ROOT/virtusb-$name"
         local status="❌"
         
-        # Check if gadget is enabled by looking at UDC file and lsusb
-        if [[ -f "$gadget_path/UDC" ]]; then
+        # Check if gadget exists physically
+        if [[ ! -d "$gadget_path" ]]; then
+            status="🔴"
+            name="$name (orphelin)"
+        elif [[ -f "$gadget_path/UDC" ]]; then
             local udc_content
             udc_content=$(cat "$gadget_path/UDC" 2>/dev/null || echo "")
             if [[ -n "$udc_content" ]]; then
@@ -715,25 +931,35 @@ Version: $SCRIPT_VERSION - Universal Linux Support
 Usage: $SCRIPT_NAME <command> [options]
 
 Commands:
-  create <name> --size <size> --brand <brand>  Create a gadget
-  enable <name>                                Enable a gadget
-  disable <name>                               Disable a gadget
-  delete <name>                                Delete a gadget
-  list                                         List gadgets
-  purge                                        Remove ALL gadgets
+  create <name> --size <size> --brand <brand>  Create a virtual USB device
+  enable <name>                                Enable/mount a device
+  disable <name>                               Disable/unmount a device
+  delete <name>                                Delete a device
+  list                                         List all devices
+  purge                                        Remove ALL devices (includes orphan cleanup)
   help                                         Show this help
 
 Options:
-  --size <size>    Image size (e.g., 1G, 512M, 8G)
+  --size <size>    Device size (e.g., 1G, 512M, 8G)
   --brand <brand>  Device brand
 
 Supported brands:
   sandisk, kingston, samsung, toshiba, lexar, pny, verbatim, transcend, adata, corsair
 
-Supported systems:
-  Proxmox, VMware ESXi, KVM/QEMU, VirtualBox, Generic Linux
+Examples:
+  sudo $SCRIPT_NAME create myusb --size 8G --brand sandisk
+  sudo $SCRIPT_NAME enable myusb
+  sudo $SCRIPT_NAME list
+  sudo $SCRIPT_NAME delete myusb
 
 $(detect_vm_manager)
+
+Notes:
+  • Root privileges required for all operations
+  • Devices are automatically restored after system reboot
+  • Use 'virtusb purge' to clean up orphaned files
+  • Devices appear as real USB storage devices to the system
+
 EOF
 }
 
