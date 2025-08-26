@@ -91,26 +91,41 @@ restore_enabled_devices() {
     read -ra enabled_devices <<< "$(get_enabled_devices)"
     
     if [[ ${#enabled_devices[@]} -eq 0 ]]; then
-        log_info "Aucun appareil à restaurer"
         return 0
     fi
     
-    log_info "Restauration de ${#enabled_devices[@]} appareil(s)..."
-    
     for device in "${enabled_devices[@]}"; do
         if check_gadget_integrity "$device"; then
-            log_info "Restauration de l'appareil: $device"
-            enable_gadget "$device" 2>/dev/null || {
-                log_error "Échec de la restauration de l'appareil: $device"
+            enable_gadget "$device" "true" 2>/dev/null || {
                 remove_enabled_state "$device"
             }
         else
-            log_error "Appareil corrompu détecté: $device - suppression de l'état"
             remove_enabled_state "$device"
         fi
     done
     
-    log_success "Restauration terminée"
+    # Clean up orphaned metadata files (devices that exist in metadata but not in configfs)
+    local orphaned_count=0
+    for meta_file in "$METADATA_DIR"/*.meta; do
+        [[ -f "$meta_file" ]] || continue
+        
+        # Extract name from metadata file
+        local name=""
+        while IFS='=' read -r key value; do
+            value="${value//\"/}"
+            [[ "$key" == "NAME" ]] && name="$value"
+        done < "$meta_file"
+        
+        if [[ -n "$name" ]]; then
+            # Check if gadget exists in configfs
+            if [[ ! -d "$GADGET_ROOT/virtusb-$name" ]]; then
+                rm -f "$meta_file"
+                rm -f "$IMAGE_DIR/$name.img"
+                remove_enabled_state "$name"
+                ((orphaned_count++))
+            fi
+        fi
+    done
 }
 
 # Check root privileges
@@ -340,6 +355,7 @@ EOF
 
 enable_gadget() {
     local name="$1"
+    local silent="${2:-false}"
     local gadget_path="$GADGET_ROOT/virtusb-$name"
     
     [[ -d "$gadget_path" ]] || { 
@@ -352,7 +368,10 @@ enable_gadget() {
         local current_udc
         current_udc=$(cat "$gadget_path/UDC" 2>/dev/null || echo "")
         if [[ -n "$current_udc" ]]; then
-            echo "🟢 Device $name already mounted"
+            # Only show message if not silent
+            if [[ "$silent" != "true" ]]; then
+                echo "🟢 Device $name already mounted"
+            fi
             return 0
         fi
     fi
@@ -404,7 +423,10 @@ enable_gadget() {
             
             # Check if device appears in lsusb
             if lsusb | grep -q "$vid_pid"; then
-                echo "🟢 Device $name mounted"
+                # Only show message if not silent
+                if [[ "$silent" != "true" ]]; then
+                    echo "🟢 Device $name mounted"
+                fi
                 save_enabled_state "$name"
                 return 0
             else
@@ -440,7 +462,7 @@ delete_gadget() {
     
     [[ -d "$gadget_path" ]] || { 
         log_error "Gadget not found: $name"
-        exit 1
+        return 1
     }
     
     # Disable first (silently)
@@ -473,13 +495,18 @@ delete_gadget() {
     
     # Force removal of gadget directory
     rmdir "$gadget_path" 2>/dev/null || {
-        log_error "Failed to remove gadget directory, attempting module reload..."
+        log_error "Failed to remove gadget directory for '$name', attempting module reload..."
         # If removal fails, try to force it by reloading the module
         modprobe -r dummy_hcd 2>/dev/null || true
         sleep 2
         modprobe dummy_hcd num=30 2>/dev/null || {
             log_error "Failed to reload dummy_hcd module"
-            exit 1
+            return 1
+        }
+        # Try removal again after module reload
+        rmdir "$gadget_path" 2>/dev/null || {
+            log_error "Still failed to remove gadget directory for '$name' after module reload"
+            return 1
         }
     }
     
@@ -489,6 +516,7 @@ delete_gadget() {
     remove_enabled_state "$name"
     
     echo "🗑️ Device $name removed"
+    return 0
 }
 
 # Integrity checking
@@ -497,6 +525,44 @@ check_gadget_integrity() {
     [[ -f "$METADATA_DIR/$name.meta" ]] && \
     [[ -d "$GADGET_ROOT/virtusb-$name" ]] && \
     [[ -f "$IMAGE_DIR/$name.img" ]]
+}
+
+# System integrity check and repair
+check_system_integrity() {
+    # Check for orphaned metadata files
+    local orphaned_metadata=0
+    for meta_file in "$METADATA_DIR"/*.meta; do
+        [[ -f "$meta_file" ]] || continue
+        
+        local name=""
+        while IFS='=' read -r key value; do
+            value="${value//\"/}"
+            [[ "$key" == "NAME" ]] && name="$value"
+        done < "$meta_file"
+        
+        if [[ -n "$name" && ! -d "$GADGET_ROOT/virtusb-$name" ]]; then
+            ((orphaned_metadata++))
+        fi
+    done
+    
+    # Check for orphaned gadgets (gadgets without metadata)
+    local orphaned_gadgets=0
+    for gadget_dir in "$GADGET_ROOT"/virtusb-*; do
+        [[ -d "$gadget_dir" ]] || continue
+        
+        local gadget_name
+        gadget_name=$(basename "$gadget_dir" | sed 's/^virtusb-//')
+        
+        if [[ ! -f "$METADATA_DIR/$gadget_name.meta" ]]; then
+            ((orphaned_gadgets++))
+        fi
+    done
+    
+    if [[ $orphaned_metadata -gt 0 || $orphaned_gadgets -gt 0 ]]; then
+        return 1
+    else
+        return 0
+    fi
 }
 
 # Cleanup
@@ -509,16 +575,40 @@ purge() {
         return
     fi
     
-    # Remove all gadgets with metadata
+    echo "🧹 Starting cleanup process..."
+    
+    # Phase 1: Remove all gadgets with metadata
+    local removed_count=0
     for meta_file in "$METADATA_DIR"/*.meta; do
         [[ -f "$meta_file" ]] || continue
-        source "$meta_file"
-        delete_gadget "$NAME" 2>/dev/null || true
+        
+        # Extract name from metadata file
+        local name=""
+        while IFS='=' read -r key value; do
+            value="${value//\"/}"
+            [[ "$key" == "NAME" ]] && name="$value"
+        done < "$meta_file"
+        
+        if [[ -n "$name" ]]; then
+            echo "🗑️ Removing device with metadata: $name"
+            delete_gadget "$name" 2>/dev/null || {
+                log_error "Failed to remove device: $name"
+            }
+            ((removed_count++))
+        fi
     done
     
-    # Remove all remaining orphaned gadgets
+    echo "✅ Removed $removed_count devices with metadata"
+    
+    # Phase 2: Remove all remaining orphaned gadgets
+    local orphaned_count=0
     for gadget_dir in "$GADGET_ROOT"/virtusb-*; do
         [[ -d "$gadget_dir" ]] || continue
+        
+        local gadget_name
+        gadget_name=$(basename "$gadget_dir" | sed 's/^virtusb-//')
+        
+        echo "🗑️ Removing orphaned gadget: $gadget_name"
         
         # Disable first
         [[ -f "$gadget_dir/UDC" && -s "$gadget_dir/UDC" ]] && echo "" > "$gadget_dir/UDC" 2>/dev/null || true
@@ -549,10 +639,16 @@ purge() {
         echo "" > "$gadget_dir/max_speed" 2>/dev/null || true
         
         # Force removal of gadget directory
-        rmdir "$gadget_dir" 2>/dev/null || true
+        rmdir "$gadget_dir" 2>/dev/null || {
+            log_error "Failed to remove orphaned gadget directory: $gadget_dir"
+        }
+        ((orphaned_count++))
     done
     
-    # Clean data directories
+    echo "✅ Removed $orphaned_count orphaned gadgets"
+    
+    # Phase 3: Clean data directories
+    echo "🧹 Cleaning data directories..."
     rm -rf "$IMAGE_DIR"/* 2>/dev/null || true
     rm -rf "$METADATA_DIR"/* 2>/dev/null || true
     rm -f "$ENABLED_STATE_FILE" 2>/dev/null || true
@@ -647,23 +743,10 @@ main() {
     check_root
     
     case "${1:-}" in
-        --load-modules)
-            # Load modules for systemd service
-            check_modules
-            check_configfs
-            echo "Modules loaded successfully"
-            exit 0
-            ;;
-        --restore-state)
-            # Restore enabled devices state
-            check_modules
-            check_configfs
-            restore_enabled_devices
-            exit 0
-            ;;
         create|enable|disable|delete|list|purge|help|--help|-h)
             check_modules
             check_configfs
+            restore_enabled_devices
             ;;
         *)
             log_error "Unknown command: ${1:-}"

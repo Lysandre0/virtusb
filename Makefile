@@ -25,8 +25,7 @@ install: ## Install virtusb
 	@echo '[Service]' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
 	@echo 'Type=oneshot' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
 	@echo 'RemainAfterExit=yes' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
-	@echo 'ExecStart=/usr/local/bin/virtusb --load-modules' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
-	@echo 'ExecStartPost=/usr/local/bin/virtusb --restore-state' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
+	@echo 'ExecStart=/usr/local/bin/virtusb list' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
 	@echo 'ExecStartPost=/bin/bash -c "mkdir -p /opt/virtusb/logs && echo virtusb started at $(date) >> /opt/virtusb/logs/service.log"' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
 	@echo 'ExecStop=/bin/true' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
 	@echo 'Restart=on-failure' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
