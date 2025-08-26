@@ -19,14 +19,15 @@ install: ## Install virtusb
 	@sudo mkdir -p /opt/virtusb/logs
 	@echo '[Unit]' | sudo tee /usr/lib/systemd/system/virtusb.service > /dev/null
 	@echo 'Description=Virtual USB Gadget Manager' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
-	@echo 'After=network.target' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
+	@echo 'After=sys-kernel-config.mount' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
 	@echo 'Before=multi-user.target' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
+	@echo 'Requires=sys-kernel-config.mount' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
 	@echo '' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
 	@echo '[Service]' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
 	@echo 'Type=oneshot' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
 	@echo 'RemainAfterExit=yes' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
-	@echo 'ExecStart=/usr/local/bin/virtusb list' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
-	@echo 'ExecStartPost=/bin/bash -c "mkdir -p /opt/virtusb/logs && echo virtusb started at $(date) >> /opt/virtusb/logs/service.log"' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
+	@echo 'ExecStart=/usr/local/bin/virtusb auto-restore' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
+	@echo 'ExecStartPost=/bin/bash -c "mkdir -p /opt/virtusb/logs && echo virtusb restored at $(date) >> /opt/virtusb/logs/service.log"' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
 	@echo 'ExecStop=/bin/true' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
 	@echo 'Restart=on-failure' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
 	@echo 'RestartSec=10' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null

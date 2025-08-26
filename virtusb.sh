@@ -88,6 +88,7 @@ get_enabled_devices() {
 
 restore_enabled_devices() {
     local enabled_devices
+    local silent="${1:-false}"
     read -ra enabled_devices <<< "$(get_enabled_devices)"
     
     if [[ ${#enabled_devices[@]} -eq 0 ]]; then
@@ -101,14 +102,14 @@ restore_enabled_devices() {
         if check_gadget_integrity "$device"; then
             # Gadget exists and is complete, try to enable it
             enable_gadget "$device" "true" 2>/dev/null || {
-                log_error "Échec de l'activation du gadget: $device"
+                log_error "Failed to activate gadget: $device"
                 remove_enabled_state "$device"
                 ((failed_count++))
             }
         else
             # Gadget missing but has metadata - try to recreate it
             if [[ -f "$METADATA_DIR/$device.meta" ]] && [[ -f "$IMAGE_DIR/$device.img" ]]; then
-                log_info "Recréation du gadget après reboot: $device"
+                log_info "Recreating gadget after reboot: $device"
                 
                 # Read metadata to recreate gadget
                 local vid_pid="" vendor="" product="" serial="" brand="" size=""
@@ -147,13 +148,13 @@ restore_enabled_devices() {
                     
                     # Try to enable the recreated gadget
                     enable_gadget "$device" "true" 2>/dev/null || {
-                        log_error "Échec de l'activation du gadget recréé: $device"
+                        log_error "Failed to activate recreated gadget: $device"
                         remove_enabled_state "$device"
                         ((failed_count++))
                     }
                     ((restored_count++))
                 else
-                    log_error "Métadonnées incomplètes pour le gadget: $device"
+                    log_error "Incomplete metadata for gadget: $device"
                     remove_enabled_state "$device"
                     ((failed_count++))
                 fi
@@ -231,15 +232,17 @@ restore_enabled_devices() {
         fi
     done
     
-    # Log results
-    if [[ $restored_count -gt 0 ]]; then
-        log_success "Restauration après reboot: $restored_count gadgets recréés et activés"
-    fi
-    if [[ $failed_count -gt 0 ]]; then
-        log_error "Échecs de restauration: $failed_count gadgets"
-    fi
-    if [[ $orphaned_count -gt 0 || $orphaned_gadgets -gt 0 || $orphaned_images -gt 0 ]]; then
-        log_info "Nettoyage automatique après reboot: $orphaned_count métadonnées, $orphaned_gadgets gadgets, $orphaned_images images supprimés"
+    # Log results (only if not silent)
+    if [[ "$silent" != "true" ]]; then
+        if [[ $restored_count -gt 0 ]]; then
+            log_success "Restoration after reboot: $restored_count gadgets recreated and activated"
+        fi
+        if [[ $failed_count -gt 0 ]]; then
+            log_error "Restoration failures: $failed_count gadgets"
+        fi
+        if [[ $orphaned_count -gt 0 || $orphaned_gadgets -gt 0 || $orphaned_images -gt 0 ]]; then
+            log_info "Automatic cleanup after reboot: $orphaned_count metadata, $orphaned_gadgets gadgets, $orphaned_images images removed"
+        fi
     fi
 }
 
@@ -703,7 +706,7 @@ check_system_integrity() {
 # Cleanup
 
 purge() {
-    echo "🧹 Nettoyage automatique des fichiers orphelins..."
+    echo "🧹 Automatic cleanup of orphaned files..."
     
     local orphaned_metadata=0
     local orphaned_gadgets=0
@@ -773,22 +776,22 @@ purge() {
     done
     
     if [[ $orphaned_metadata -gt 0 || $orphaned_gadgets -gt 0 || $orphaned_images -gt 0 ]]; then
-        echo "✅ Nettoyage automatique terminé: $orphaned_metadata métadonnées, $orphaned_gadgets gadgets, $orphaned_images images supprimés"
+        echo "✅ Automatic cleanup completed: $orphaned_metadata metadata, $orphaned_gadgets gadgets, $orphaned_images images removed"
     else
-        echo "✅ Aucun fichier orphelin trouvé"
+        echo "✅ No orphaned files found"
     fi
     
     # Ask for confirmation to remove ALL remaining gadgets
     echo ""
-    echo "Supprimer TOUS les gadgets restants ? (y/n)"
+    echo "Remove ALL remaining gadgets? (y/n)"
     read -r response
     
     if [[ "$response" != "y" ]]; then
-        echo "❌ Opération annulée"
+        echo "❌ Operation cancelled"
         return
     fi
     
-    echo "🧹 Suppression de tous les gadgets..."
+    echo "🧹 Removing all gadgets..."
     
     # Phase 4: Remove all gadgets with metadata
     local removed_count=0
@@ -803,15 +806,15 @@ purge() {
         done < "$meta_file"
         
         if [[ -n "$name" ]]; then
-            echo "🗑️ Suppression du gadget avec métadonnées: $name"
+            echo "🗑️ Removing gadget with metadata: $name"
             delete_gadget "$name" 2>/dev/null || {
-                log_error "Échec de la suppression du gadget: $name"
+                log_error "Failed to remove gadget: $name"
             }
             ((removed_count++))
         fi
     done
     
-    echo "✅ $removed_count gadgets avec métadonnées supprimés"
+    echo "✅ $removed_count gadgets with metadata removed"
     
     # Phase 5: Remove all remaining orphaned gadgets (double check)
     local orphaned_count=0
@@ -821,7 +824,7 @@ purge() {
         local gadget_name
         gadget_name=$(basename "$gadget_dir" | sed 's/^virtusb-//')
         
-        echo "🗑️ Suppression du gadget orphelin: $gadget_name"
+        echo "🗑️ Removing orphaned gadget: $gadget_name"
         
         # Disable first
         [[ -f "$gadget_dir/UDC" && -s "$gadget_dir/UDC" ]] && echo "" > "$gadget_dir/UDC" 2>/dev/null || true
@@ -853,15 +856,15 @@ purge() {
         
         # Force removal of gadget directory
         rmdir "$gadget_dir" 2>/dev/null || {
-            log_error "Échec de la suppression du répertoire gadget orphelin: $gadget_dir"
+            log_error "Failed to remove orphaned gadget directory: $gadget_dir"
         }
         ((orphaned_count++))
     done
     
-    echo "✅ $orphaned_count gadgets orphelins supprimés"
+    echo "✅ $orphaned_count orphaned gadgets removed"
     
     # Phase 6: Clean data directories
-    echo "🧹 Nettoyage des répertoires de données..."
+    echo "🧹 Cleaning data directories..."
     rm -rf "$IMAGE_DIR"/* 2>/dev/null || true
     rm -rf "$METADATA_DIR"/* 2>/dev/null || true
     rm -f "$ENABLED_STATE_FILE" 2>/dev/null || true
@@ -870,7 +873,7 @@ purge() {
     mkdir -p "$IMAGE_DIR"
     mkdir -p "$METADATA_DIR"
     
-    echo "🧹 Tous les gadgets ont été nettoyés"
+    echo "🧹 All gadgets have been cleaned up"
 }
 
 # Display
@@ -972,7 +975,13 @@ main() {
         create|enable|disable|delete|list|purge|help|--help|-h)
             check_modules
             check_configfs
-            restore_enabled_devices
+            ;;
+        auto-restore)
+            # Internal command for systemd service - automatic restoration
+            check_modules
+            check_configfs
+            restore_enabled_devices "true"
+            exit 0
             ;;
         *)
             log_error "Unknown command: ${1:-}"
