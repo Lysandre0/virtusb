@@ -12,22 +12,27 @@ help: ## Show this help
 
 install: ## Install virtusb
 	@echo "Installing virtusb..."
-	@sudo cp src/virtusb.sh /usr/local/bin/virtusb
+	@sudo cp virtusb.sh /usr/local/bin/virtusb
 	@sudo chmod +x /usr/local/bin/virtusb
 	@sudo mkdir -p /etc/virtusb
 	@sudo mkdir -p /opt/virtusb/data
 	@sudo mkdir -p /opt/virtusb/logs
 	@echo '[Unit]' | sudo tee /usr/lib/systemd/system/virtusb.service > /dev/null
 	@echo 'Description=Virtual USB Gadget Manager' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
-	@echo 'After=network.target' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
+	@echo 'After=sys-kernel-config.mount' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
+	@echo 'After=systemd-modules-load.service' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
 	@echo 'Before=multi-user.target' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
+	@echo 'Requires=sys-kernel-config.mount' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
+	@echo 'Wants=systemd-modules-load.service' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
 	@echo '' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
 	@echo '[Service]' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
 	@echo 'Type=oneshot' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
 	@echo 'RemainAfterExit=yes' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
-	@echo 'ExecStart=/usr/local/bin/virtusb --load-modules' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
-	@echo 'ExecStartPost=/bin/bash -c "mkdir -p /opt/virtusb/logs && echo virtusb started at $(date) >> /opt/virtusb/logs/service.log"' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
+	@echo 'ExecStartPre=/bin/bash -c "sleep 2"' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
+	@echo 'ExecStart=/usr/local/bin/virtusb auto-restore' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
+	@echo 'ExecStartPost=/bin/bash -c "mkdir -p /opt/virtusb/logs && echo virtusb restored at $(date) >> /opt/virtusb/logs/service.log"' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
 	@echo 'ExecStop=/bin/true' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
+	@echo 'TimeoutStartSec=30' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
 	@echo 'Restart=on-failure' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
 	@echo 'RestartSec=10' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
 	@echo '' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
@@ -35,8 +40,15 @@ install: ## Install virtusb
 	@echo 'WantedBy=multi-user.target' | sudo tee -a /usr/lib/systemd/system/virtusb.service > /dev/null
 	@sudo systemctl daemon-reload
 	@sudo systemctl enable virtusb.service
-	@sudo systemctl start virtusb.service
-	@echo "✅ virtusb installed and service started"
+	@echo "✅ virtusb installed and service enabled"
+	@echo "Service will start automatically at next boot"
+	@echo ""
+	@echo "To start the service now (optional):"
+	@echo "  sudo systemctl start virtusb.service"
+	@echo ""
+	@echo "To check service status:"
+	@echo "  sudo systemctl status virtusb.service"
+	@echo ""
 	@echo "Usage: sudo virtusb help"
 
 uninstall: ## Remove virtusb
@@ -52,6 +64,28 @@ test: ## Test virtusb installation
 	@echo "Testing virtusb installation..."
 	@sudo virtusb help
 	@echo "✅ Test completed"
+
+restart-service: ## Restart virtusb service
+	@echo "Restarting virtusb service..."
+	@sudo systemctl restart virtusb.service
+	@echo "Service status:"
+	@sudo systemctl status virtusb.service --no-pager -l
+	@echo "✅ Service restarted"
+
+check-service: ## Check virtusb service status
+	@echo "Checking virtusb service status..."
+	@sudo systemctl status virtusb.service --no-pager -l
+	@echo ""
+	@echo "Service logs:"
+	@sudo journalctl -u virtusb.service --no-pager -l -n 10
+
+test-service: ## Test virtusb service manually
+	@echo "Testing virtusb service manually..."
+	@echo "Testing auto-restore command:"
+	@sudo /usr/local/bin/virtusb auto-restore
+	@echo ""
+	@echo "Testing list command:"
+	@sudo /usr/local/bin/virtusb list
 
 clean: ## Clean build artifacts
 	@echo "Cleaning build artifacts..."

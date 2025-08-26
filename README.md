@@ -12,6 +12,8 @@ The simple and reliable solution for creating virtual USB drives on Linux system
 - **Realistic device simulation** - Supports popular USB drive brands with authentic VID:PID pairs
 - **Simple management** - Easy create, enable, disable, and delete operations
 - **Clean interface** - Minimal, user-friendly output with status indicators
+- **Automatic state persistence** - Seamlessly restores enabled devices after system reboot
+- **Robust error handling** - Automatically cleans up orphaned devices and metadata
 
 ## 🚀 Installation
 
@@ -40,7 +42,16 @@ sudo virtusb disable mykey
 sudo virtusb delete mykey
 ```
 
-## 🔧 Commands Reference
+## 🔄 State Persistence
+
+virtusb automatically saves and restores the state of enabled devices across system reboots. The process is completely transparent to the user:
+
+- **Automatic saving**: When you enable a device, its state is automatically saved
+- **Automatic restoration**: After system reboot, all previously enabled devices are automatically restored
+- **Automatic cleanup**: Orphaned devices and metadata are automatically cleaned up
+- **No user intervention required**: Everything happens seamlessly in the background
+
+## �� Commands Reference
 
 | Command | Description |
 |---------|-------------|
@@ -65,30 +76,6 @@ sudo virtusb delete mykey
 - **adata** (VID:PID: 125f:c96a)
 - **corsair** (VID:PID: 1b1c:1a0d)
 
-## 🔗 VM Integration
-
-After enabling a device, you can attach it to your virtual machines:
-
-### Proxmox
-```bash
-qm set <VM_ID> -usb0 host=<VID>:<PID>
-```
-
-### VMware ESXi
-```bash
-vim-cmd vmsvc/device.connectusb <VM_ID> <VID>:<PID>
-```
-
-### KVM/QEMU
-```bash
-virsh attach-device <VM_NAME> <XML_FILE>
-```
-
-### VirtualBox
-```bash
-VBoxManage controlvm <VM_NAME> usbattach <VID>:<PID>
-```
-
 ## 🏗️ Installation Structure
 
 ```
@@ -112,7 +99,7 @@ make clean      # Clean build artifacts
 
 ### Kernel Modules
 - `libcomposite` - USB Composite Framework
-- `dummy_hcd` - Virtual USB Host Controller (loaded with 5 UDC instances)
+- `dummy_hcd` - Virtual USB Host Controller (loaded with 30 UDC instances)
 - `usb_f_mass_storage` - Mass Storage Function
 
 ### System Requirements
@@ -142,7 +129,7 @@ sudo virtusb enable key2
 ## 🐛 Troubleshooting
 
 ### "No UDC available"
-- Ensure the system has loaded the `dummy_hcd` module
+- The system automatically loads required modules
 - Check if configfs is mounted: `mount | grep configfs`
 - Restart the service: `sudo systemctl restart virtusb`
 
@@ -154,6 +141,10 @@ sudo virtusb enable key2
 - Verify the device is enabled: `sudo virtusb list`
 - Check if the VID:PID appears in `lsusb`
 - Ensure your VM manager supports USB passthrough
+
+### Orphaned devices or metadata
+- The system automatically cleans up orphaned devices and metadata
+- Use `sudo virtusb purge` to manually clean all devices if needed
 
 ## 📝 Examples
 
