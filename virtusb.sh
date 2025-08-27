@@ -158,6 +158,7 @@ restore_enabled_devices() {
                     # Set strings
                     echo "$vendor" > "$gadget_path/strings/0x409/manufacturer"
                     echo "$product" > "$gadget_path/strings/0x409/product"
+                    echo "$serial" > "$gadget_path/strings/0x409/serialnumber"
                     echo "Config 1" > "$gadget_path/configs/c.1/strings/0x409/configuration"
                     
                     # Set mass storage
@@ -482,6 +483,7 @@ create_gadget() {
     echo "$vendor" > "$gadget_path/strings/0x409/manufacturer"
     echo "$product" > "$gadget_path/strings/0x409/product"
     echo "Config 1" > "$gadget_path/configs/c.1/strings/0x409/configuration"
+    echo "$serial" > "$gadget_path/strings/0x409/serialnumber"
     
     # Set mass storage
     echo "$IMAGE_DIR/$name.img" > "$gadget_path/functions/mass_storage.0/lun.0/file"
